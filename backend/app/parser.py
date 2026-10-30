@@ -57,7 +57,7 @@ def parse_gaps(source, category):
                 raise ParseError("Начальная форма не может быть пустой.")
         elif "|" in inner:
             raise ParseError("Для орфографии используйте варианты через запятую без |.")
-        options = [v.strip() for v in inner.split(",")]
+        options = [normalize_option(v) if category == "spelling" else v.strip() for v in inner.split(",")]
         if len(options) < 2:
             raise ParseError("Укажите верный ответ и хотя бы один ложный вариант.")
         if category == "grammar" and any(not o for o in options):
@@ -78,25 +78,39 @@ def parse_gaps(source, category):
     return {"parts": parts}, False
 
 
+def normalize_option(value):
+    return " " if value and value.isspace() else value.strip()
+
+
 def parse_lines(raw, category):
     if category not in CATEGORIES:
         raise ParseError("Неизвестная категория.")
     if len(raw.encode("utf-8")) > 1024 * 1024:
         raise ParseError("Максимальный размер списка — 1 МБ.")
-    lines = [s.strip() for s in raw.lstrip("\ufeff").splitlines() if s.strip()]
+    lines = [(i, s.strip()) for i, s in enumerate(raw.lstrip("\ufeff").splitlines(), 1) if s.strip()]
     if not lines:
         raise ParseError("Добавьте хотя бы одно задание.")
     if len(lines) > 3000:
         raise ParseError("В одном списке может быть не более 3000 заданий.")
     result, errors = [], []
-    for index, source in enumerate(lines):
+    for index, source in lines:
         try:
             if len(source) > 2000:
                 raise ParseError("Строка слишком длинная (максимум 2000 символов).")
-            data, review = parse_stress(source) if category == "stress" else parse_gaps(source, category)
+            body, explanation = source, ""
+            if source.startswith("["):
+                match = re.match(r"\[([^\[\]]+)\]\s*(.+)$", source)
+                if not match or not match[1].strip():
+                    raise ParseError("Пояснение задаётся перед заданием: [песочный] зАмок.")
+                explanation, body = match[1].strip(), match[2]
+            if "[" in body or "]" in body:
+                raise ParseError("Пояснение в квадратных скобках должно стоять перед заданием.")
+            data, review = parse_stress(body) if category == "stress" else parse_gaps(body, category)
+            if explanation:
+                data["explanation"] = explanation
             result.append({"source": source, "data": data, "needs_review": review})
         except ParseError as exc:
-            errors.append({"line": index + 1, "message": str(exc)})
+            errors.append({"line": index, "message": str(exc)})
     if errors:
         raise ParseError("\n".join(f"Строка {e['line']}: {e['message']}" for e in errors[:20]))
     return result

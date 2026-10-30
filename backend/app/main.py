@@ -15,12 +15,14 @@ from sqlalchemy.orm.exc import StaleDataError
 from . import auth, models as m, schemas as s
 from .database import Base, SessionLocal, engine, get_db
 from .parser import CATEGORIES, ParseError, parse_lines, solution
+from .migrations import migrate
 
 
 @asynccontextmanager
 async def lifespan(app):
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
+        migrate(engine, db)
         if not db.scalar(select(m.User.id).limit(1)):
             password = base64.b64encode(secrets.token_bytes(24)).decode("ascii")
             credentials = Path(os.getenv("ADMIN_CREDENTIALS_PATH", ".admin_credentials"))
@@ -281,8 +283,12 @@ def profile_lists(profile, db):
 
 
 def profile_json(profile, db):
+    active = db.scalar(select(m.TrainingSession).where(m.TrainingSession.profile_id == profile.id, m.TrainingSession.status == "active"))
     return {"id": profile.id, "name": profile.name, "kind": profile.kind, "note": profile.note,
-            "created_at": profile.created_at, "lists": profile_lists(profile, db)}
+            "created_at": profile.created_at, "lists": profile_lists(profile, db),
+            "active_session": {"id": active.id, "name": active.context.get("name", "Тренировка"),
+                               "category": active.context.get("category"), "total": len(active.items),
+                               "answered": sum(not k.startswith("partial:") for k in active.answers)} if active else None}
 
 
 @app.get("/api/profiles")
@@ -363,7 +369,7 @@ def selection_items(profile_id: int, list_id: int, db: Session = Depends(get_db)
 def public_training_item(item, category):
     data = item.data
     if category == "stress":
-        return {"id": item.id, "word": data["word"]}
+        return {"id": item.id, "word": data["word"], "explanation": data.get("explanation", "")}
     parts = []
     for part in data["parts"]:
         if "text" in part:
@@ -372,25 +378,55 @@ def public_training_item(item, category):
             options = part["options"][:]
             random.SystemRandom().shuffle(options)
             parts.append({"hint": part["hint"], "options": options})
-    return {"id": item.id, "parts": parts}
+    return {"id": item.id, "parts": parts, "explanation": data.get("explanation", "")}
 
 
 @app.post("/api/profiles/{profile_id}/sessions", status_code=201)
 def start_session(profile_id: int, data: s.SessionInput, db: Session = Depends(get_db), user=Depends(auth.current_user)):
-    task_list, folder = attached(profile_id, data.list_id, user, db)
+    owned(m.Profile, profile_id, user, db)
+    if db.scalar(select(m.TrainingSession.id).where(m.TrainingSession.profile_id == profile_id, m.TrainingSession.status == "active")):
+        raise HTTPException(409, "Сначала продолжите сохранённую тренировку или завершите её без сохранения.")
+    list_ids = list(dict.fromkeys(data.list_ids or ([data.list_id] if data.list_id else [])))
+    if not list_ids:
+        raise HTTPException(422, "Выберите хотя бы один список.")
+    sources = [attached(profile_id, list_id, user, db) for list_id in list_ids]
+    task_list, folder = sources[0]
+    if any(f.category != folder.category for _, f in sources):
+        raise HTTPException(422, "Объединять можно только списки одного типа заданий.")
     ids = set(data.item_ids)
-    items = list(db.scalars(select(m.Item).where(m.Item.list_id == task_list.id, m.Item.id.in_(ids))))
+    items = list(db.scalars(select(m.Item).where(m.Item.list_id.in_(list_ids), m.Item.id.in_(ids))))
     if len(items) != len(ids):
-        raise HTTPException(422, "Некоторые задания не принадлежат списку.")
+        raise HTTPException(422, "Некоторые задания не принадлежат выбранным спискам.")
     if any(i.needs_review for i in items):
         raise HTTPException(422, "Сначала проверьте ударения в редакторе списка.")
     random.SystemRandom().shuffle(items)
     session = m.TrainingSession(id=secrets.token_urlsafe(24), profile_id=profile_id, list_id=task_list.id,
-                                items=[{"id": i.id, "data": i.data, "source": i.source} for i in items], answers={})
+                                items=[{"id": i.id, "list_id": i.list_id, "data": i.data, "source": i.source} for i in items], answers={},
+                                context={"category": folder.category, "name": " + ".join(t.name for t, _ in sources),
+                                         "list_ids": list_ids, "public_items": [public_training_item(i, folder.category) for i in items]})
     db.add(session)
-    db.commit()
-    return {"id": session.id, "category": folder.category, "name": task_list.name, "profile_id": profile_id,
-            "items": [public_training_item(i, folder.category) for i in items]}
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "В этом профиле уже есть незавершённая тренировка.")
+    return session_json(session)
+
+
+def session_json(session):
+    current = session.items[session.cursor] if session.cursor < len(session.items) else None
+    choices = session.answers.get(f"partial:{current['id']}", []) if current else []
+    feedback = session.answers.get(str(current["id"])) if current else None
+    if choices and not feedback:
+        correct = [p["correct"] for p in current["data"]["parts"] if "options" in p]
+        checks = [a == b for a, b in zip(choices, correct)]
+        feedback = {"complete": False, "correct": all(checks), "results": checks, "correct_answers": correct[:len(choices)]}
+    return {"id": session.id, "profile_id": session.profile_id, "status": session.status,
+            "category": session.context.get("category"), "name": session.context.get("name"),
+            "list_ids": session.context.get("list_ids", [session.list_id]),
+            "items": session.context.get("public_items", []), "index": session.cursor,
+            "choices": choices, "feedback": feedback,
+            "answered": sum(not k.startswith("partial:") for k in session.answers)}
 
 
 def owned_session(session_id, user, db):
@@ -401,9 +437,34 @@ def owned_session(session_id, user, db):
     return session
 
 
+@app.get("/api/sessions/{session_id}")
+def resume_session(session_id: str, db: Session = Depends(get_db), user=Depends(auth.current_user)):
+    return session_json(owned_session(session_id, user, db))
+
+
+@app.post("/api/sessions/{session_id}/advance")
+def advance_session(session_id: str, data: s.AdvanceInput, db: Session = Depends(get_db), user=Depends(auth.current_user)):
+    session = owned_session(session_id, user, db)
+    if session.status != "active":
+        raise HTTPException(409, "Тренировка уже завершена.")
+    if session.items[session.cursor]["id"] == data.item_id:
+        if str(data.item_id) not in session.answers:
+            raise HTTPException(409, "Сначала ответьте на текущее задание.")
+        if session.cursor + 1 < len(session.items):
+            session.cursor += 1
+        try:
+            db.commit()
+        except StaleDataError:
+            db.rollback()
+            raise HTTPException(409, "Тренировка изменена в другом окне. Обновите страницу.")
+    return session_json(session)
+
+
 @app.post("/api/sessions/{session_id}/answers")
 def answer(session_id: str, data: s.AnswerInput, db: Session = Depends(get_db), user=Depends(auth.current_user)):
     session = owned_session(session_id, user, db)
+    if session.status != "active":
+        raise HTTPException(409, "Тренировка уже завершена.")
     if str(data.item_id) in session.answers:
         return session.answers[str(data.item_id)]
     snapshot = next((i for i in session.items if i["id"] == data.item_id), None)
@@ -456,7 +517,27 @@ def answer(session_id: str, data: s.AnswerInput, db: Session = Depends(get_db), 
 @app.get("/api/sessions/{session_id}/results")
 def results(session_id: str, db: Session = Depends(get_db), user=Depends(auth.current_user)):
     session = owned_session(session_id, user, db)
+    if all(str(i["id"]) in session.answers for i in session.items) and session.status == "active":
+        session.status = "finished"
+        db.commit()
+    return session_results(session)
+
+
+@app.post("/api/sessions/{session_id}/finish")
+def finish_session(session_id: str, db: Session = Depends(get_db), user=Depends(auth.current_user)):
+    session = owned_session(session_id, user, db)
+    session.status = "finished"
+    try:
+        db.commit()
+    except StaleDataError:
+        db.rollback()
+        raise HTTPException(409, "Тренировка изменена в другом окне. Повторите завершение.")
+    return session_results(session)
+
+
+def session_results(session):
     answers = {k: v for k, v in session.answers.items() if not k.startswith("partial:")}
     mistakes = [{"id": i["id"], "source": i["source"], "solution": solution(i["data"])} for i in session.items if str(i["id"]) in answers and not answers[str(i["id"])]["correct"]]
     return {"total": len(answers), "correct": sum(a["correct"] for a in answers.values()), "mistakes": mistakes,
-            "complete": len(answers) == len(session.items), "profile_id": session.profile_id, "list_id": session.list_id}
+            "complete": len(answers) == len(session.items), "profile_id": session.profile_id, "list_id": session.list_id,
+            "list_ids": session.context.get("list_ids", [session.list_id]), "category": session.context.get("category")}

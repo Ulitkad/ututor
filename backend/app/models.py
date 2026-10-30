@@ -89,6 +89,9 @@ class TrainingSession(Base):
     list_id: Mapped[int] = mapped_column(ForeignKey("task_lists.id", ondelete="CASCADE"))
     items: Mapped[list] = mapped_column(JSON)
     answers: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(default="active")
+    context: Mapped[dict] = mapped_column(JSON, default=dict)
+    cursor: Mapped[int] = mapped_column(default=0)
     version_id: Mapped[int] = mapped_column(default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     __mapper_args__ = {"version_id_col": version_id}

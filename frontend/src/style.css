@@ -156,3 +156,59 @@ textarea.input { min-height: 100px; resize: vertical; line-height: 1.9; }
 @media (max-width: 1000px) { .folder-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .page-heading { align-items: flex-start; } .heading-actions { flex-direction: column-reverse; } .heading-actions .btn { min-height: 35px; padding-block: 8px; } .category-card p { font-size: 9px; } }
 @media (max-width: 760px) { .sidebar { transform: translateX(-100%); transition: transform .25s; width: 252px; } .sidebar.open { transform: translateX(0); } .sidebar-overlay { position: fixed; inset: 0; background: #0f172a40; z-index: 39; backdrop-filter: blur(3px); } .main-shell { margin-left: 0; } .mobile-menu { display: flex; } .topbar { height: 65px; padding-inline: 16px; } .page-container { padding: 29px 20px 40px; } .page-footer { padding: 20px; } .page-footer span:last-child { display: none; } h1 { font-size: 27px; } .page-heading { gap: 12px; flex-wrap: wrap; } .heading-actions { flex-direction: row; } .category-grid { gap: 8px; margin-bottom: 26px; } .category-card { padding: 14px 11px 12px; } .category-card h3 { font-size: 11px; min-height: 28px; } .category-card p { display: none; } .category-icon { width: 31px; height: 31px; border-radius: 9px; margin-bottom: 12px; } .category-icon svg { width: 18px; } .category-check { top: 14px; right: 11px; width: 13px; height: 13px; } .category-check svg { width: 9px; } .category-card .category-bottom { font-size: 8px; padding-top: 11px; margin-top: 9px; } .category-bottom svg { width: 12px; } .section-heading { flex-wrap: wrap; } .search-field input { width: 185px; } .folder-grid { gap: 10px; } .folder-card { padding: 16px; } .folder-card h3 { font-size: 12px; } .folder-menu { right: 9px !important; } .list-row { padding: 14px; gap: 10px; flex-wrap: wrap; } .modal-backdrop { padding: 14px; } .modal-header,.modal-body { padding: 21px; } .modal-footer { padding: 15px 21px; } .badge { font-size: 8px; } .folder-arrow { display: none; } }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+/* Readable defaults also apply to compact/scoped page controls. */
+body { font-size: 16px; }
+.btn { font-size: 16px !important; min-height: 44px; white-space: normal; }
+.btn.sm { font-size: 14px !important; min-height: 38px; }
+.input, .search-field input, .random-select select { font-size: 16px !important; }
+.field label, .field-label, .gap-fields label { font-size: 15px !important; }
+.icon-btn { min-width: 34px; min-height: 34px; }
+.nav-items a { font-size: 16px; }
+.topbar, .breadcrumbs, .user-meta strong { font-size: 14px; }
+.workspace-label, .user-meta span, .eyebrow { font-size: 12px; }
+.page-heading p, .category-card p, .folder-meta, .list-info p,
+.category-card .category-bottom, .attached-title p, .attached-progress-caption,
+.section-progress-title > span, .section-progress-title strong,
+.attach-options p, .profile-description, .info-banner, .error-box,
+.empty-state p, .loading, .toast, .menu-popover button { font-size: 15px !important; }
+.folder-card h3, .category-card h3, .list-info h3, .attached-title h3,
+.section-progress-title h3, .attach-options strong { font-size: 17px !important; }
+.badge, .count-badge, .tab-count { font-size: 13px !important; }
+.profile-category-tabs > button { font-size: 16px !important; }
+.profile-category-tabs { flex-wrap: wrap; }
+.section-heading h2 { font-size: 21px; }
+.tabs button, .editor-toolbar .tabs button { font-size: 14px !important; }
+.editor-toolbar, .modal-footer { flex-wrap: wrap; }
+.modal-header h2 { font-size: 23px; }
+.format-help p, .format-help h4, .format-help pre, .raw-count,
+.review-note, .builder-title, .builder-tip, .builder-empty, .editor-save-note,
+.editor-list-heading, .selection-hint, .selection-total, .text-action,
+.dropzone > span:not(.empty-icon), .dropzone small { font-size: 14px !important; }
+.dropzone strong { font-size: 17px !important; }
+.format-help p, .builder-tip, .editor-save-note { color: #64748b; }
+.editor-save-note { flex: 1 1 200px; }
+.selection-row, .editor-row, .gap-preview, .gap-hint { font-size: 16px !important; }
+.stress-preview { font-size: 20px; }
+.task-explanation { color: #64748b; font-size: 16px; overflow-wrap: anywhere; }
+.training-context, .training-session-progress > div:first-child,
+.training-session-progress strong, .training-session-progress strong > span,
+.training-tip, .keyboard-tip, .training-footer, .gap-steps small,
+.answer-option small, .answer-feedback p, .result-saved,
+.score-ring small { font-size: 14px !important; }
+.training-question-label { font-size: 13px !important; letter-spacing: 1px !important; }
+.answer-feedback strong, .result-stats > div > span, .result-mistakes > p,
+.perfect-result { font-size: 17px !important; }
+.result-stats strong { font-size: 30px !important; }
+.result-mistakes h3 { font-size: 21px !important; }
+.mistake-list > div { font-size: 20px !important; }
+.result-actions { flex-wrap: wrap; }
+.text-xs { font-size: 14px; }
+@media (max-width: 760px) {
+  .training-header { height: auto !important; min-height: 92px; padding-block: 16px !important; flex-wrap: wrap; }
+  .training-context { order: 3; max-width: 100% !important; flex-basis: 100%; }
+  .training-header .btn { max-width: 65%; }
+  .profile-category-tabs > button { font-size: 14px !important; }
+  .category-card h3 { font-size: 15px !important; }
+  .modal-footer .btn { flex: 1 1 auto; }
+}

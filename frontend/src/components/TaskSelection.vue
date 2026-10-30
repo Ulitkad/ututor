@@ -6,19 +6,24 @@ import { addRandom, categoryById } from '../utils'
 import { useTraining } from '../stores/training'
 import Modal from './Modal.vue'
 import TaskPreview from './TaskPreview.vue'
-const props = defineProps({ profileId: Number, list: Object })
+const props = defineProps({ profileId: Number, list: Object, lists: Array })
 const emit = defineEmits(['close'])
 const router = useRouter(), training = useTraining()
 const items = ref([]), selected = ref(new Set()), loading = ref(true), busy = ref(false), error = ref(''), randomCount = ref(10)
 const counts = computed(() => items.value.reduce((a, i) => { a[i.status]++; return a }, { correct: 0, mistake: 0, new: 0 }))
-onMounted(async () => { try { items.value = await api(`/profiles/${props.profileId}/lists/${props.list.id}/items`) } catch (e) { error.value = e.message } finally { loading.value = false } })
+onMounted(async () => {
+  try {
+    const sources = props.lists || [props.list]
+    items.value = (await Promise.all(sources.map(async list => (await api(`/profiles/${props.profileId}/lists/${list.id}/items`)).map(item => ({ ...item, listName: list.name }))))).flat()
+  } catch (e) { error.value = e.message } finally { loading.value = false }
+})
 function addStatus(status) { selected.value = new Set([...selected.value, ...items.value.filter(i => (!status || i.status === status) && !i.needs_review).map(i => i.id)]) }
 function toggle(id) { const set = new Set(selected.value); set.has(id) ? set.delete(id) : set.add(id); selected.value = set }
 async function start() {
   busy.value = true; error.value = ''
   try {
-    await training.start(props.profileId, props.list.id, [...selected.value])
-    emit('close'); router.push('/training')
+    await training.start(props.profileId, (props.lists || [props.list]).map(l => l.id), [...selected.value])
+    emit('close'); router.push({ path: '/training', query: { session: training.session.id } })
   } catch (e) { error.value = e.message } finally { busy.value = false }
 }
 </script>

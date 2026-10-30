@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addRandom, displayOption, duplicateRowIndexes, percentage, shuffle, taskLabel } from './utils'
+import { addRandom, displayOption, duplicateRowIndexes, importPrompt, normalizeOption, percentage, serializeTask, shuffle, taskLabel } from './utils'
 
 describe('training helpers', () => {
   it('adds random unselected tasks without dropping existing selection', () => {
@@ -33,11 +33,36 @@ describe('training helpers', () => {
   it('always renders empty answers explicitly', () => {
     expect(displayOption('')).toBe('∅')
     expect(displayOption('ь')).toBe('ь')
+    expect(displayOption(' ')).toBe('␣')
   })
   it('handles empty progress and Russian plural forms', () => {
     expect(percentage(0, 0)).toBe(0)
     expect(percentage(42, 120)).toBe(35)
     expect([1, 2, 11, 21, 24].map(taskLabel)).toEqual(['задание', 'задания', 'заданий', 'задание', 'задания'])
+  })
+})
+
+describe('import format v2', () => {
+  it('distinguishes spaces, omission and padded letters', () => {
+    expect(['', ' ', '  ', ' е '].map(normalizeOption)).toEqual(['', ' ', ' ', 'е'])
+    const data = { explanation: 'контекст', parts: [{ text: 'По' }, { hint: '', options: [' ', ''], correct: ' ' }, { text: 'этому' }] }
+    expect(serializeTask(data, 'spelling')).toBe('[контекст] По( ,)этому')
+    expect(serializeTask({ word: 'замок', stress: 1, explanation: 'песочный' }, 'stress')).toBe('[песочный] зАмок')
+    expect(serializeTask({ word: 'арка', stress: 0 }, 'stress')).toBe('А́рка')
+  })
+  it('provides distinct prompts with category rules', () => {
+    const prompts = ['stress', 'spelling', 'grammar'].map(importPrompt)
+    expect(new Set(prompts).size).toBe(3)
+    expect(prompts[0]).toContain('[песочный] зАмок')
+    expect(prompts[1]).toContain('По( ,)этому')
+    expect(prompts[2]).toContain('начальная форма|')
+  })
+  it('does not confuse homographs with different explanations or spaces with omissions', () => {
+    expect(duplicateRowIndexes([
+      { data: { word: 'замок', stress: 1, explanation: 'песочный' } },
+      { data: { word: 'замок', stress: 3, explanation: 'дверной' } },
+      ...[['', 'т'], [' ', 'т']].map(options => ({ data: { parts: [{ hint: '', options, correct: options[0] }] } })),
+    ]).size).toBe(0)
   })
 })
 

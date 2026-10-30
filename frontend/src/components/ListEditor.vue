@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
-import { categoryById, displayOption, duplicateRowIndexes, vowels } from '../utils'
+import { categoryById, displayOption, duplicateRowIndexes, importPrompt, normalizeOption, serializeTask, vowels } from '../utils'
 import Modal from './Modal.vue'
 import TaskPreview from './TaskPreview.vue'
 
@@ -13,6 +13,20 @@ const loading = ref(false), busy = ref(false), error = ref(''), dragging = ref(f
 const word = ref(''), text = ref(''), parts = ref([]), stress = ref(null), selection = ref({ start: 0, end: 0 }), textInput = ref(null)
 const optionModal = ref(null), distractors = ref(''), hint = ref(''), correct = ref('')
 const selectionPopover = ref(false)
+const explanation = ref(''), copied = ref(false), rawNumbers = ref(null)
+const lineNumbers = computed(() => raw.value.split('\n').length)
+async function copyPrompt() {
+  error.value = ''; copied.value = false
+  const value = importPrompt(props.config.category)
+  try { await navigator.clipboard.writeText(value); copied.value = true }
+  catch {
+    const input = document.createElement('textarea'), previous = document.activeElement
+    input.value = value; input.style.cssText = 'position:fixed;opacity:0'; document.body.append(input); input.select()
+    try { copied.value = document.execCommand('copy') } catch { copied.value = false }
+    finally { input.remove(); previous?.focus() }
+    if (!copied.value) error.value = 'Не удалось скопировать промт. Разрешите доступ к буферу обмена и откройте сайт по HTTPS или localhost.'
+  }
+}
 const reviewCount = computed(() => rows.value.filter(r => r.needs_review).length)
 const duplicateIndexes = computed(() => duplicateRowIndexes(rows.value))
 const dirty = ref(false)
@@ -30,8 +44,7 @@ function close() {
   if (!busy.value && (!dirty.value || window.confirm('Закрыть редактор без сохранения изменений?'))) emit('close')
 }
 function serialize(data) {
-  if ('word' in data) return [...data.word].map((c, i) => i === data.stress ? c.toUpperCase() + (i === 0 ? '\u0301' : '') : c).join('')
-  return data.parts.map(p => 'text' in p ? p.text : `(${props.config.category === 'grammar' ? `${p.hint}|` : ''}${p.options.map(o => o || ' ').join(',')})`).join('')
+  return serializeTask({ ...data, explanation: explanation.value.trim() }, props.config.category)
 }
 async function switchMode(next) {
   error.value = ''
@@ -57,9 +70,10 @@ async function upload(file) {
   } catch (e) { error.value = e.message } finally { busy.value = false }
 }
 function dropped(e) { dragging.value = false; upload(e.dataTransfer.files[0]) }
-function clearBuilder() { word.value = ''; stress.value = null; text.value = ''; parts.value = []; active.value = 0; selection.value = { start: 0, end: 0 } }
+function clearBuilder() { explanation.value = ''; word.value = ''; stress.value = null; text.value = ''; parts.value = []; active.value = 0; selection.value = { start: 0, end: 0 } }
 function editRow(row, index) {
   active.value = index + 1
+  explanation.value = row.data.explanation || ''
   if (props.config.category === 'stress') { word.value = row.data.word; stress.value = row.data.stress }
   else {
     parts.value = JSON.parse(JSON.stringify(row.data.parts))
@@ -90,7 +104,8 @@ function addGap() {
   const { start, end } = optionModal.value
   const gapIndex = [...text.value.slice(0, start)].filter(c => c === '▢').length
   const gaps = parts.value.filter(p => 'options' in p)
-  const options = [correct.value.trim(), ...distractors.value.split(',').map(o => o.trim())]
+  const normalize = props.config.category === 'spelling' ? normalizeOption : value => value.trim()
+  const options = [normalize(correct.value), ...distractors.value.split(',').map(normalize)]
   if (new Set(options).size !== options.length) { error.value = 'Варианты не должны повторяться.'; return }
   gaps.splice(gapIndex, 0, { hint: hint.value.trim(), options, correct: options[0] })
   text.value = text.value.slice(0, start) + '▢' + text.value.slice(end)
@@ -98,7 +113,7 @@ function addGap() {
   parts.value = text.value.split('▢').flatMap((s, i, all) => [ ...(s ? [{ text: s }] : []), ...(i < all.length - 1 ? [gaps[index++]] : []) ])
   optionModal.value = null; error.value = ''
 }
-function updateOptions(part, event) { part.options = [part.options[0], ...event.target.value.split(',').map(o => o.trim())]; part.correct = part.options[0] }
+function updateOptions(part, event) { part.options = [part.options[0], ...event.target.value.split(',').map(props.config.category === 'spelling' ? normalizeOption : o => o.trim())]; part.correct = part.options[0] }
 async function addRow() {
   error.value = ''; busy.value = true
   try {
@@ -113,7 +128,7 @@ function removeRow(index) { rows.value.splice(index, 1); raw.value = rows.value.
 async function save() {
   error.value = ''; busy.value = true
   try {
-    if (word.value.trim() || text.value.trim()) throw new Error('Сначала добавьте или сохраните задание в конструкторе ниже.')
+    if (mode.value === 'visual' && (word.value.trim() || text.value.trim() || explanation.value.trim())) throw new Error('Сначала добавьте или сохраните задание в конструкторе ниже.')
     const payload = { name: name.value, raw: mode.value === 'raw' ? raw.value : rows.value.map(r => r.source).join('\n') }
     await api(props.config.id ? `/lists/${props.config.id}` : `/folders/${props.config.folderId}/lists`, { method: props.config.id ? 'PUT' : 'POST', body: payload })
     emit('saved')
@@ -131,14 +146,21 @@ function exportRaw() {
     <div v-else class="modal-body editor-body">
       <div class="field"><label for="list-name">Название списка</label><input id="list-name" v-model="name" class="input" placeholder="Например, Сложные ударения · ЕГЭ" required maxlength="120" autofocus @input="dirty = true" /></div>
       <div class="editor-toolbar"><div class="tabs"><button :class="{ active: mode === 'visual' }" :disabled="busy" @click="switchMode('visual')"><Icon name="SlidersHorizontal" :size="13" />Визуальный</button><button :class="{ active: mode === 'raw' }" :disabled="busy" @click="switchMode('raw')"><Icon name="FileText" :size="13" />Текстовый (Raw)</button><button :class="{ active: mode === 'import' }" :disabled="busy" @click="switchMode('import')"><Icon name="Upload" :size="13" />Импорт</button></div><button class="icon-btn" title="Скачать .txt" aria-label="Скачать список" @click="exportRaw"><Icon name="Download" :size="16" /></button></div>
+      <div v-if="mode !== 'visual'" class="prompt-toolbar"><button class="btn secondary sm" @click="copyPrompt"><Icon name="Copy" :size="16" />{{ copied ? 'Промт скопирован' : 'Скопировать промт' }}</button><span>Для преобразования списков нейросетью · {{ category.name }}</span></div>
       <div v-if="mode === 'import'" class="import-area"><label class="dropzone" :class="{ dragging }" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dropped"><input type="file" accept=".txt,text/plain" class="sr-only" :disabled="busy" @change="upload($event.target.files[0])" /><span class="empty-icon"><Icon name="Upload" :size="27" /></span><strong>{{ busy ? 'Проверяем файл…' : 'Перетащите сюда текстовый файл' }}</strong><span>или <u>выберите на компьютере</u></span><small>.txt · UTF-8 · до 1 МБ · до 3000 заданий</small></label><div class="format-help"><h4><Icon name="Info" :size="15" />Формат: {{ category.name }}</h4><p>{{ category.help }}</p><pre>{{ category.sample }}</pre></div></div>
-      <template v-else-if="mode === 'raw'"><div class="format-help mb-4"><p>{{ category.help }}</p><pre>{{ category.sample }}</pre></div><textarea v-model="raw" class="input raw-input" spellcheck="false" :placeholder="category.sample" aria-label="Текст заданий" @input="dirty = true"></textarea><div class="raw-count">{{ lines }} строк · одна строка — одно задание</div></template>
+      <template v-else-if="mode === 'raw'">
+        <div class="format-help mb-4"><p>{{ category.help }}</p><pre>{{ category.sample }}</pre></div>
+        <div class="raw-editor"><div ref="rawNumbers" class="raw-line-numbers" aria-hidden="true"><div v-for="n in lineNumbers" :key="n">{{ n }}</div></div><textarea v-model="raw" class="input raw-input" wrap="off" spellcheck="false" :placeholder="category.sample" aria-label="Текст заданий с нумерацией строк" @scroll="rawNumbers.scrollTop = $event.target.scrollTop" @input="dirty = true"></textarea></div>
+        <div class="raw-count">{{ lines }} заданий · одна строка — одно задание</div>
+      </template>
       <template v-else>
         <div v-if="reviewCount" class="review-note"><Icon name="AlertCircle" :size="16" />В {{ reviewCount }} заданиях слово неизвестно или ударение неоднозначно. Укажите правильное ударение вручную: нажмите карандаш и выберите гласную.</div>
         <div class="builder"><div class="builder-title"><Icon :name="category.icon" :size="16" /><strong>{{ active ? `Редактирование задания №${active}` : 'Конструктор задания' }}</strong><button v-if="active" class="btn ghost sm ml-auto" @click="clearBuilder">Отмена</button></div>
+          <div class="field"><label for="task-explanation">Пояснение / контекст (необязательно)</label><input id="task-explanation" v-model="explanation" class="input" placeholder="Например, песочный — для слова «замок»" maxlength="300" @input="dirty = true" /><span class="muted">Показывается над заданием. В тексте: [песочный] зАмок.</span></div>
           <template v-if="config.category === 'stress'"><div class="field"><label for="stress-word">Введите слово и нажмите на ударную гласную</label><input id="stress-word" v-model="word" class="input" placeholder="Например, каталог" @input="wordChanged" /></div><div v-if="word" class="letter-builder"><button v-for="(letter, i) in word" :key="i" :disabled="!vowels.includes(letter)" :class="{ vowel: vowels.includes(letter), chosen: stress === i }" :aria-label="`Ударение на ${letter}, буква ${i + 1}`" @click="stress = i">{{ letter + (stress === i ? '\u0301' : '') }}</button></div><p class="builder-tip">Гласные выделены голубым. Нажмите на ударную гласную.</p></template>
           <template v-else><div class="field"><label for="builder-text">{{ config.category === 'grammar' ? 'Текст предложения' : 'Слово или словосочетание' }}</label><textarea id="builder-text" ref="textInput" v-model="text" class="input" :placeholder="config.category === 'grammar' ? 'Введите предложение и поставьте курсор на место пропуска…' : 'Введите слово и выделите буквы для пропуска…'" @input="textChanged" @select="captureSelection" @click="captureSelection" @keyup="captureSelection"></textarea></div><div class="flex flex-wrap gap-2"><button class="btn secondary sm" @click="openGap(false)"><Icon name="Plus" :size="14" />{{ config.category === 'grammar' ? 'Вставить пропуск' : 'Добавить ложные варианты' }}</button><button v-if="config.category === 'spelling'" class="btn soft sm" @click="openGap(true)">+ Пропуск без буквы (∅)</button></div>
-            <div v-for="(part, i) in parts.filter(p => 'options' in p)" :key="i" class="gap-editor"><div class="flex items-center justify-between gap-2"><span class="field-label">Пропуск {{ i + 1 }}</span><span class="badge green">Первый вариант — верный</span></div><div v-if="config.category === 'grammar'" class="field mt-3"><label>Начальная форма</label><input v-model="part.hint" class="input" placeholder="сберечь" /></div><div class="answer-tags"><span v-for="(option, j) in part.options" :key="j" :class="{ right: j === 0 }">{{ displayOption(option) }}<Icon v-if="j === 0" name="Check" :size="11" /></span></div><div class="gap-fields"><label>Верный ответ<input v-model="part.options[0]" class="input" placeholder="∅ — оставьте пустым" /></label><label>Ложные варианты через запятую<input class="input" :value="part.options.slice(1).join(',')" placeholder="Вариант, ещё вариант" @change="updateOptions(part, $event)" /></label></div><button v-if="config.category === 'spelling' && !part.options.includes('')" class="btn ghost sm mt-2" @click="part.options.push('')">+ Вариант «Без буквы» (∅)</button></div>
+            <p v-if="config.category === 'spelling'" class="builder-tip">Пустое поле — без символа (∅), один пробел — пробел (␣). Не добавляйте пробелы после запятых для оформления.</p>
+            <div v-for="(part, i) in parts.filter(p => 'options' in p)" :key="i" class="gap-editor"><div class="flex items-center justify-between gap-2"><span class="field-label">Пропуск {{ i + 1 }}</span><span class="badge green">Первый вариант — верный</span></div><div v-if="config.category === 'grammar'" class="field mt-3"><label>Начальная форма</label><input v-model="part.hint" class="input" placeholder="сберечь" /></div><div class="answer-tags"><span v-for="(option, j) in part.options" :key="j" :class="{ right: j === 0 }">{{ displayOption(option) }}<Icon v-if="j === 0" name="Check" :size="11" /></span></div><div class="gap-fields"><label>Верный ответ<input v-model="part.options[0]" class="input" placeholder="∅ — оставьте пустым" /></label><label>Ложные варианты через запятую<input class="input" :value="part.options.slice(1).join(',')" placeholder="Вариант,ещё вариант" @change="updateOptions(part, $event)" /></label></div><div v-if="config.category === 'spelling'" class="flex flex-wrap gap-2 mt-2"><button v-if="!part.options.includes('')" class="btn ghost sm" @click="part.options.push('')">+ Без символа (∅)</button><button v-if="!part.options.includes(' ')" class="btn ghost sm" @click="part.options.push(' ')">+ Пробел (␣)</button></div></div>
           </template>
           <div class="builder-footer"><button class="btn soft sm" :disabled="busy || (config.category === 'stress' ? !word || stress === null : !parts.some(p => 'options' in p))" @click="addRow"><Icon :name="active ? 'Check' : 'Plus'" :size="14" />{{ active ? 'Сохранить задание' : 'Добавить в список' }}</button></div>
         </div>
@@ -157,10 +179,14 @@ function exportRaw() {
       <div v-if="error" class="error-box mt-4" role="alert">{{ error }}</div>
     </div>
     <footer class="modal-footer"><span class="editor-save-note"><Icon name="ShieldCheck" :size="13" />Неизменённые задания сохранят прогресс</span><button class="btn secondary" :disabled="busy" @click="close">Отмена</button><button class="btn primary" :disabled="busy || loading || !name.trim() || (mode === 'raw' ? !raw.trim() : !rows.length)" @click="save"><Icon :name="busy ? 'LoaderCircle' : 'Check'" :class="{ spin: busy }" :size="16" />Сохранить список</button></footer>
-    <div v-if="optionModal" class="gap-overlay"><div class="gap-dialog card"><h3>{{ config.category === 'grammar' ? 'Настройка пропуска' : 'Варианты написания' }}</h3><div v-if="config.category === 'grammar'" class="field mt-5"><label for="hint">Начальная форма (подсказка)</label><input id="hint" v-model="hint" class="input" placeholder="сберечь" /></div><div class="field mt-4"><label for="correct-option">Верный вариант</label><input id="correct-option" v-model="correct" class="input" :disabled="optionModal.empty" :placeholder="optionModal.empty ? '∅ — без буквы' : 'Верный ответ'" /></div><div class="field"><label for="distractors">Ложные варианты через запятую</label><input id="distractors" v-model="distractors" class="input" placeholder="Например, и, е" /><span v-if="config.category === 'spelling'" class="muted text-xs">Пустой вариант обозначается символом ∅</span></div><button v-if="config.category === 'spelling' && !optionModal.empty" class="btn soft sm mb-4" @click="distractors += (distractors ? ',' : '') + ' '">+ Вариант «Без буквы» (∅)</button><div v-if="error" class="error-box mb-3">{{ error }}</div><div class="flex justify-end gap-2"><button class="btn secondary sm" @click="optionModal = null; error = ''">Отмена</button><button class="btn primary sm" :disabled="config.category === 'grammar' && (!hint.trim() || !correct.trim() || !distractors.trim())" @click="addGap">Добавить пропуск</button></div></div></div>
+    <div v-if="optionModal" class="gap-overlay"><div class="gap-dialog card"><h3>{{ config.category === 'grammar' ? 'Настройка пропуска' : 'Варианты написания' }}</h3><div v-if="config.category === 'grammar'" class="field mt-5"><label for="hint">Начальная форма (подсказка)</label><input id="hint" v-model="hint" class="input" placeholder="сберечь" /></div><div class="field mt-4"><label for="correct-option">Верный вариант</label><input id="correct-option" v-model="correct" class="input" :disabled="optionModal.empty" :placeholder="optionModal.empty ? '∅ — без символа' : 'Верный ответ'" /></div><div class="field"><label for="distractors">Ложные варианты через запятую</label><input id="distractors" v-model="distractors" class="input" placeholder="Например, и,е" /><span v-if="config.category === 'spelling'" class="muted">Пустой вариант — ∅; один пробел — ␣. Без пробелов для оформления.</span></div><div v-if="config.category === 'spelling'" class="flex flex-wrap gap-2 mb-4"><button v-if="!optionModal.empty" class="btn soft sm" @click="distractors += ','">+ Без символа (∅)</button><button class="btn soft sm" @click="distractors = distractors ? distractors + ', ' : ' '">+ Пробел (␣)</button><button v-if="!optionModal.empty" class="btn ghost sm" @click="correct = ' '">Верный ответ — пробел</button></div><div v-if="error" class="error-box mb-3">{{ error }}</div><div class="flex justify-end gap-2"><button class="btn secondary sm" @click="optionModal = null; error = ''">Отмена</button><button class="btn primary sm" :disabled="config.category === 'grammar' && (!hint.trim() || !correct.trim() || !distractors.trim())" @click="addGap">Добавить пропуск</button></div></div></div>
   </Modal>
 </template>
 <style scoped>
+.prompt-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:16px 0;color:#64748b}
+.raw-editor{display:flex;height:340px;border:1px solid #dfe7f0;border-radius:9px;overflow:hidden}
+.raw-line-numbers{flex-shrink:0;min-width:48px;padding:11px 10px;overflow:hidden;text-align:right;background:#f1f5f9;color:#64748b;user-select:none;font:15px/28px monospace}
+.raw-editor .raw-input{border:0;border-radius:0;resize:none;min-height:0!important;height:100%;font:15px/28px monospace!important;padding:11px 13px;white-space:pre;overflow:auto}
 .editor-rows .editor-row.duplicate { background: #fef3c7; }
 .editor-row.duplicate.editing { box-shadow: inset 3px 0 #0284c7; }
 .selection-popover{position:sticky;bottom:10px;z-index:2;display:flex;align-items:center;justify-content:center;gap:10px;width:fit-content;max-width:100%;margin:12px auto 0;padding:8px 10px;border:1px solid #d7e9f7;border-radius:12px;background:#fff;box-shadow:0 5px 20px #0f172a12}.selection-popover>span{font-size:11px;color:#7298b5;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

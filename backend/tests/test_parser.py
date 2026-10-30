@@ -87,7 +87,7 @@ def test_accentor_is_offline_shared_and_results_are_cached(monkeypatch):
 
 
 def test_spelling_multi_gap_and_empty_variants():
-    entries = parse_lines("мыш(ь, )\nопас( ,т)ный\nс(ло,ла)в(о,а,и,е)", "spelling")
+    entries = parse_lines("мыш(ь,)\nопас(,т)ный\nс(ло,ла)в(о,а,и,е)", "spelling")
     assert entries[0]["data"]["parts"][1]["options"] == ["ь", ""]
     assert entries[1]["data"]["parts"][1]["correct"] == ""
     assert solution(entries[1]["data"]) == "опасный"
@@ -98,6 +98,27 @@ def test_grammar_and_bom():
     item = parse_lines("\ufeffОн (сберечь|сбережёт,сберегёт) здоровье.", "grammar")[0]
     assert item["data"]["parts"][1]["hint"] == "сберечь"
     assert solution(item["data"]) == "Он сбережёт здоровье."
+
+
+def test_explanations_and_literal_spaces():
+    item = parse_lines("[песочный] зАмок", "stress")[0]
+    assert item["data"] == {"word": "замок", "stress": 1, "explanation": "песочный"}
+    assert solution(item["data"]) == "за́мок"
+    entries = parse_lines("По( ,)этому\n[причина] По(, )этому\nграм(,м)ота", "spelling")
+    assert entries[0]["data"]["parts"][1]["options"] == [" ", ""]
+    assert [solution(e["data"]) for e in entries] == ["По этому", "Поэтому", "грамота"]
+    assert entries[1]["data"]["explanation"] == "причина"
+
+
+def test_error_line_matches_raw_line_numbers():
+    with pytest.raises(ParseError, match="Строка 4:"):
+        parse_lines("\nдом\n\nдва слова", "stress")
+
+
+@pytest.mark.parametrize("source", ["[] зАмок", "[песочный зАмок", "зАмок [песочный]", "[[песочный]] зАмок"])
+def test_invalid_explanations(source):
+    with pytest.raises(ParseError):
+        parse_lines(source, "stress")
 
 
 @pytest.mark.parametrize("source,category", [

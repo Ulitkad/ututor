@@ -54,8 +54,14 @@ class AttachInput(BaseModel):
     list_id: int
 
 
-class SessionInput(AttachInput):
+class SessionInput(BaseModel):
+    list_id: int | None = None
+    list_ids: list[int] = Field(default_factory=list, max_length=100)
     item_ids: list[int] = Field(min_length=1, max_length=3000)
+
+
+class AdvanceInput(BaseModel):
+    item_id: int
 
 
 class AnswerInput(BaseModel):
