@@ -152,6 +152,8 @@ def test_resume_partial_session_finish_and_new_round(client, admin, teacher):
                        json={"list_id": list_id, "item_ids": [items[0]["id"]]}).status_code == 409
     saved = client.get(f"/api/sessions/{session['id']}", headers=admin).json()
     assert saved["items"] == session["items"]  # Includes unchanged shuffled options.
+    # The current cursor may point at either shuffled word; a separate single-word
+    # round below checks partial feedback deterministically.
     assert client.get(f"/api/sessions/{session['id']}", headers=teacher).status_code == 404
     active = client.get(f"/api/profiles/{profile_id}", headers=admin).json()["active_session"]
     assert active["id"] == session["id"] and active["answered"] == 0
@@ -212,3 +214,14 @@ def test_empty_early_finish(client, admin):
     session = post(client, f"/profiles/{profile_id}/sessions", admin, list_id=list_id, item_ids=[items[0]["id"]])
     result = post(client, f"/sessions/{session['id']}/finish", admin)
     assert result["total"] == result["correct"] == 0 and result["mistakes"] == []
+
+
+def test_partial_feedback_is_restored_and_unfinished_word_not_counted(client, admin):
+    _, list_id, profile_id, items = setup_training(client, admin, raw="с(ло,ла)в(о,а)")
+    session = post(client, f"/profiles/{profile_id}/sessions", admin, list_id=list_id, item_ids=[items[0]["id"]])
+    post(client, f"/sessions/{session['id']}/answers", admin, item_id=items[0]["id"], choices=["ла"])
+    saved = client.get(f"/api/sessions/{session['id']}", headers=admin).json()
+    assert saved["index"] == 0 and saved["choices"] == ["ла"]
+    assert saved["feedback"] == {"correct": False, "complete": False, "results": [False], "correct_answers": ["ло"]}
+    result = post(client, f"/sessions/{session['id']}/finish", admin)
+    assert result["total"] == 0 and result["mistakes"] == []

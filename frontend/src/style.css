@@ -200,10 +200,19 @@ body { font-size: 16px; }
 .answer-feedback strong, .result-stats > div > span, .result-mistakes > p,
 .perfect-result { font-size: 17px !important; }
 .result-stats strong { font-size: 30px !important; }
+.result-stats > div > span { flex-wrap: wrap; justify-content: center; text-align: center; }
 .result-mistakes h3 { font-size: 21px !important; }
 .mistake-list > div { font-size: 20px !important; }
 .result-actions { flex-wrap: wrap; }
 .text-xs { font-size: 14px; }
+.stat-card > div > span, .stat-card em, .stat-card small, .profile-note,
+.profile-progress-label, .profile-card-bottom, .library-bottom,
+.teacher-access-banner p, .teacher-table-header, .teacher-identity p,
+.system-account, .credentials-info p, .credential-line > span,
+.login-top > span, .login-benefits, .login-footer, .login-note,
+.login-form-heading p { font-size: 14px !important; }
+.profile-card h3, .teacher-identity h3, .teacher-access-banner strong,
+.credential-line code { font-size: 17px !important; }
 @media (max-width: 760px) {
   .training-header { height: auto !important; min-height: 92px; padding-block: 16px !important; flex-wrap: wrap; }
   .training-context { order: 3; max-width: 100% !important; flex-basis: 100%; }

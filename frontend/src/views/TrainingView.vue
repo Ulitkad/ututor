@@ -26,16 +26,17 @@ onMounted(async () => {
     if (!id) { router.replace('/profiles'); return }
     await training.resume(id); restore()
     if (session.value.status === 'finished') results.value = await api(`/sessions/${id}/results`)
-  } catch (e) { error.value = e.message } finally { loading.value = false }
+  } catch (e) { training.session = null; error.value = e.message } finally { loading.value = false }
 })
 onBeforeUnmount(() => { window.removeEventListener('keydown', keydown); window.removeEventListener('beforeunload', beforeUnload) })
 onBeforeRouteLeave(() => {
   if (allowLeave.value || results.value || !session.value) return true
+  if (busy.value) return false
   return window.confirm('Выйти с сохранением тренировки? Вы сможете продолжить с этого места. Новая тренировка в этом профиле будет недоступна до завершения текущей.')
 })
 function beforeUnload(e) { if (session.value && !results.value) { e.preventDefault(); e.returnValue = '' } }
 function keydown(e) {
-  if (e.repeat || exiting.value || !complete.value || busy.value || results.value || !['Enter', ' '].includes(e.key) || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(document.activeElement?.tagName)) return
+  if (loading.value || e.repeat || exiting.value || !complete.value || busy.value || results.value || !['Enter', ' '].includes(e.key) || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(document.activeElement?.tagName)) return
   e.preventDefault(); next()
 }
 async function choose(value) {
@@ -98,7 +99,14 @@ async function finish() {
       </main><footer class="training-footer"><Icon name="ShieldCheck" :size="14" />Прогресс сохраняется после каждого задания</footer>
     </template>
     <main v-else-if="results" class="results-main"><h1>Результаты тренировки</h1><p v-if="!results.total" class="muted mt-4">Вы не завершили ни одного задания. Статистика не изменилась.</p>
-      <div class="results-card card"><div class="score-ring" :style="{ background: `conic-gradient(#61b99f ${score * 3.6}deg, #eef4f8 0deg)` }"><div><strong>{{ score }}<span>%</span></strong><small>верных ответов</small></div></div><div class="result-stats"><div><span>Всего пройдено</span><strong>{{ results.total }}</strong></div><div class="correct"><span><Icon name="CircleCheck" :size="13" />Верно</span><strong>{{ results.correct }}</strong></div><div class="mistake"><span><Icon name="CircleX" :size="13" />С ошибками</span><strong>{{ results.mistakes.length }}</strong></div></div><div v-if="results.mistakes.length" class="result-mistakes"><h3>Задания с ошибками<span>{{ results.mistakes.length }}</span></h3><p>Правильные ответы</p><div class="mistake-list"><div v-for="item in results.mistakes" :key="item.id"><span class="mistake-dot"></span><span>{{ item.solution }}</span><Icon name="Check" :size="14" /></div></div></div><div v-else class="perfect-result"><Icon name="CheckCheck" :size="20" />Все задания выполнены верно</div><div class="result-actions"><button v-if="results.mistakes.length" class="btn primary" :disabled="busy" @click="retryMistakes"><Icon :name="busy ? 'LoaderCircle' : 'RotateCcw'" :class="{ spin: busy }" :size="16" />Отработать ошибки</button><button class="btn secondary" :disabled="busy" @click="returnToProfile">Вернуться в профиль<Icon name="ArrowRight" :size="16" /></button></div><div v-if="error" class="error-box mt-4">{{ error }}</div></div><p class="result-saved"><Icon name="ShieldCheck" :size="13" />Результаты уже сохранены в учебном профиле</p></main>
+      <div class="results-card card">
+        <div class="score-ring" :style="{ background: `conic-gradient(#61b99f ${score * 3.6}deg, #eef4f8 0deg)` }"><div><strong>{{ score }}<span>%</span></strong><small>верных ответов</small></div></div>
+        <div class="result-stats"><div><span>Всего пройдено</span><strong>{{ results.total }}</strong></div><div class="correct"><span><Icon name="CircleCheck" :size="17" />Верно</span><strong>{{ results.correct }}</strong></div><div class="mistake"><span><Icon name="CircleX" :size="17" />С ошибками</span><strong>{{ results.mistakes.length }}</strong></div></div>
+        <div v-if="results.mistakes.length" class="result-mistakes"><h3>Задания с ошибками<span>{{ results.mistakes.length }}</span></h3><p>Правильные ответы</p><div class="mistake-list"><div v-for="item in results.mistakes" :key="item.id"><span class="mistake-dot"></span><span><small v-if="item.explanation" class="task-explanation">[{{ item.explanation }}] </small>{{ item.solution }}</span><Icon name="Check" :size="17" /></div></div></div>
+        <div v-else-if="results.total" class="perfect-result"><Icon name="CheckCheck" :size="20" />Все пройденные задания выполнены верно</div>
+        <div class="result-actions"><button v-if="results.mistakes.length" class="btn primary" :disabled="busy" @click="retryMistakes"><Icon :name="busy ? 'LoaderCircle' : 'RotateCcw'" :class="{ spin: busy }" :size="16" />Отработать ошибки</button><button class="btn secondary" :disabled="busy" @click="returnToProfile">Вернуться в профиль<Icon name="ArrowRight" :size="16" /></button></div>
+        <div v-if="error" class="error-box mt-4">{{ error }}</div>
+      </div><p class="result-saved"><Icon name="ShieldCheck" :size="13" />Результаты уже сохранены в учебном профиле</p></main>
   </div>
   <div v-else-if="error" class="error-box">{{ error }} <RouterLink to="/profiles">Вернуться к профилям</RouterLink></div>
    <Modal v-if="exiting" title="Завершить тренировку?" @close="!busy && (exiting = false)"><div class="modal-body"><p>Сохраните тренировку, чтобы позже продолжить с этого же места, включая ответы в текущем слове. Пока она не завершена, начать новую в этом профиле нельзя.</p><p class="mt-4 muted">Если завершить полностью, вы увидите итог только по завершённым заданиям. Нерешённые задания не повлияют на статистику.</p><div v-if="error" class="error-box mt-4">{{ error }}</div></div><footer class="modal-footer flex-wrap"><button class="btn secondary" :disabled="busy" @click="exiting = false">Назад</button><button class="btn secondary" :disabled="busy" @click="finish">Завершить полностью</button><button class="btn primary" :disabled="busy" @click="pause">Сохранить и выйти</button></footer></Modal>

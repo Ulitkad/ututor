@@ -537,7 +537,9 @@ def finish_session(session_id: str, db: Session = Depends(get_db), user=Depends(
 
 def session_results(session):
     answers = {k: v for k, v in session.answers.items() if not k.startswith("partial:")}
-    mistakes = [{"id": i["id"], "source": i["source"], "solution": solution(i["data"])} for i in session.items if str(i["id"]) in answers and not answers[str(i["id"])]["correct"]]
+    mistakes = [{"id": i["id"], "source": i["source"], "solution": solution(i["data"]),
+                 "explanation": i["data"].get("explanation", "")} for i in session.items
+                if str(i["id"]) in answers and not answers[str(i["id"])]["correct"]]
     return {"total": len(answers), "correct": sum(a["correct"] for a in answers.values()), "mistakes": mistakes,
             "complete": len(answers) == len(session.items), "profile_id": session.profile_id, "list_id": session.list_id,
             "list_ids": session.context.get("list_ids", [session.list_id]), "category": session.context.get("category")}

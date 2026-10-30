@@ -14,7 +14,7 @@ const counts = computed(() => items.value.reduce((a, i) => { a[i.status]++; retu
 onMounted(async () => {
   try {
     const sources = props.lists || [props.list]
-    items.value = (await Promise.all(sources.map(async list => (await api(`/profiles/${props.profileId}/lists/${list.id}/items`)).map(item => ({ ...item, listName: list.name }))))).flat()
+    items.value = (await Promise.all(sources.map(async list => (await api(`/profiles/${props.profileId}/lists/${list.id}/items`)).map(item => ({ ...item, listName: sources.length > 1 ? list.name : '' }))))).flat()
   } catch (e) { error.value = e.message } finally { loading.value = false }
 })
 function addStatus(status) { selected.value = new Set([...selected.value, ...items.value.filter(i => (!status || i.status === status) && !i.needs_review).map(i => i.id)]) }
