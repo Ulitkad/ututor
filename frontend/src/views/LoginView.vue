@@ -13,14 +13,12 @@ async function submit() {
 </script>
 <template>
   <main class="login-page">
-    <div class="login-top"><a href="/" class="brand"><div class="brand-symbol">u<span></span></div><span>uTutor<span class="brand-dot">.</span></span></a><span>Ваше пространство для преподавания</span></div>
+    <div class="login-top"><a href="/" class="brand"><div class="brand-symbol">u<span></span></div><span>uTutor<span class="brand-dot">.</span></span></a></div>
     <div class="login-layout">
-      <section class="login-intro"><div class="login-tag"><span class="status-dot"></span>СОЗДАНО ДЛЯ ПРЕПОДАВАТЕЛЕЙ РУССКОГО ЯЗЫКА</div><h1>Знания, которые<br />остаются <span>надолго.</span></h1><p>Все задания, ученики и маленькие победы —<br />в одном спокойном пространстве.</p>
-        <div class="login-demo"><div class="demo-heading"><span><Icon name="AudioLines" :size="15" />Маленький шаг к большому результату</span><Icon name="Sparkles" :size="17" /></div><div class="demo-word">катал<span>о́</span>г<span class="demo-check"><Icon name="Check" :size="19" /></span></div><div class="demo-caption"><span class="status-dot"></span>Верно! Ещё одно слово на своём месте.</div><div class="demo-progress"><div></div></div><div class="demo-footer"><span>Учиться — значит пробовать</span><span>8 из 10</span></div></div>
-        <div class="login-benefits"><span><Icon name="Layers" :size="16" />Порядок в заданиях</span><span><Icon name="TrendingUp" :size="16" />Прогресс на виду</span></div>
+      <section class="login-intro"><h1>Тренировки<br />по русскому языку</h1><p>Орфоэпия, орфография и грамматические нормы.<br />Списки заданий и учебные профили.</p>
       </section>
       <section class="login-card card"><div class="login-lock"><Icon name="LockKeyhole" :size="23" /></div><h2>С возвращением</h2><p class="login-card-subtitle">Войдите, чтобы продолжить ваши занятия</p><form @submit.prevent="submit"><div class="field"><label for="username">Логин</label><div class="login-input"><Icon name="Users" :size="17" /><input id="username" v-model="username" class="input" autocomplete="username" placeholder="Ваш логин" required autofocus /></div></div><div class="field"><label for="password">Пароль</label><div class="login-input"><Icon name="KeyRound" :size="17" /><input id="password" v-model="password" class="input" :type="visible ? 'text' : 'password'" autocomplete="current-password" placeholder="Введите пароль" required /><button type="button" class="icon-btn password-toggle" :aria-label="visible ? 'Скрыть пароль' : 'Показать пароль'" @click="visible = !visible"><Icon :name="visible ? 'EyeOff' : 'Eye'" :size="17" /></button></div></div><div v-if="error" class="error-box mb-4" role="alert">{{ error }}</div><button class="btn primary w-full login-submit" :disabled="busy"><Icon v-if="busy" name="LoaderCircle" :size="18" class="spin" />{{ busy ? 'Входим…' : 'Войти в пространство' }}<Icon v-if="!busy" name="ArrowRight" :size="17" /></button></form><div class="login-access"><Icon name="ShieldCheck" :size="16" /><span>Закрытая платформа. Для получения доступа<br />обратитесь к вашему администратору.</span></div></section>
-    </div><footer class="login-bottom"><span>© {{ new Date().getFullYear() }} uTutor</span><span>С заботой о каждом занятии</span><span>Меньше рутины. Больше открытий.</span></footer>
+    </div><footer class="login-bottom"><span>© {{ new Date().getFullYear() }} uTutor</span></footer>
   </main>
 </template>
 <style scoped>

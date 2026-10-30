@@ -14,7 +14,21 @@ export function shuffle(items, random = Math.random) {
   return copy
 }
 export function addRandom(items, selected, count) {
-  return new Set([...selected, ...shuffle(items.filter(i => !selected.has(i.id) && !i.needs_review)).slice(0, count).map(i => i.id)])
+  return new Set([...selected, ...shuffle(items.filter(i => !selected.has(i.id) && !i.needs_review && i.status !== 'correct')).slice(0, count).map(i => i.id)])
+}
+export function duplicateRowIndexes(rows) {
+  const normalize = value => value.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim()
+  const groups = new Map()
+  rows.forEach((row, index) => {
+    const data = row.data
+    // Keep the correct answer distinct, but ignore the order of distractors.
+    const key = JSON.stringify('word' in data ? normalize(data.word) : data.parts.map(part =>
+      'text' in part ? ['text', normalize(part.text)] : ['gap', normalize(part.hint), normalize(part.correct), part.options.map(normalize).sort()]
+    ))
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(index)
+  })
+  return new Set([...groups.values()].filter(indexes => indexes.length > 1).flat())
 }
 export function percentage(correct, total) { return total ? Math.round(correct / total * 100) : 0 }
 export function initials(name) { return name.split(/\s+/).slice(0, 2).map(s => s[0]).join('').toUpperCase() }

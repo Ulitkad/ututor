@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addRandom, displayOption, percentage, shuffle, taskLabel } from './utils'
+import { addRandom, displayOption, duplicateRowIndexes, percentage, shuffle, taskLabel } from './utils'
 
 describe('training helpers', () => {
   it('adds random unselected tasks without dropping existing selection', () => {
@@ -12,6 +12,16 @@ describe('training helpers', () => {
   })
   it('handles exhausted selection and excludes unreviewed tasks', () => {
     expect([...addRandom([{ id: 1 }, { id: 2, needs_review: true }], new Set([1]), 50)]).toEqual([1])
+  })
+  it('adds only new tasks and mistakes, even when fewer than requested remain', () => {
+    const items = [{ id: 1, status: 'correct' }, { id: 2, status: 'new' }, { id: 3, status: 'mistake' }, { id: 4, status: 'new', needs_review: true }]
+    const selected = new Set()
+    const result = addRandom(items, selected, 10)
+    expect([...result].sort()).toEqual([2, 3])
+    expect([...addRandom(items, result, 10)].sort()).toEqual([2, 3])
+    expect(selected.size).toBe(0)
+    expect(addRandom(items, new Set([1]), 10).has(1)).toBe(true)
+    expect(addRandom([items[0]], new Set(), 10).size).toBe(0)
   })
   it('shuffles without mutating or losing items', () => {
     const original = [1, 2, 3, 4]
@@ -28,5 +38,48 @@ describe('training helpers', () => {
     expect(percentage(0, 0)).toBe(0)
     expect(percentage(42, 120)).toBe(35)
     expect([1, 2, 11, 21, 24].map(taskLabel)).toEqual(['задание', 'задания', 'заданий', 'задание', 'задания'])
+  })
+})
+
+describe('duplicate tasks', () => {
+  const word = (value, stress = null) => ({ data: { word: value, stress } })
+  const gap = (options, hint = '') => ({ hint, options, correct: options[0] })
+  const task = parts => ({ data: { parts } })
+
+  it('highlights every occurrence of a repeated word', () => {
+    expect([...duplicateRowIndexes([word('каталог', 5), word('звонит', 4), word('Каталог', 5), word('каталог')])]).toEqual([0, 2, 3])
+  })
+  it('ignores spelling distractor order, including empty options and multiple gaps', () => {
+    const rows = [
+      task([{ text: 'ж' }, gap(['е', 'и', 'а']), { text: 'лезо' }]),
+      task([{ text: 'ж' }, gap(['е', 'а', 'и']), { text: 'лезо' }]),
+      task([{ text: 'опас' }, gap(['', 'т']), { text: 'ный' }, gap(['ь', '', 'ъ'])]),
+      task([{ text: 'опас' }, gap(['', 'т']), { text: 'ный' }, gap(['ь', 'ъ', ''])]),
+    ]
+    expect([...duplicateRowIndexes(rows)]).toEqual([0, 1, 2, 3])
+  })
+  it('recognizes grammar sentences with reordered distractors', () => {
+    const sentence = options => task([{ text: 'Он ' }, gap(options, 'сберечь'), { text: ' здоровье.' }])
+    expect([...duplicateRowIndexes([
+      sentence(['сбережёт', 'сберегёт', 'сберечёт']),
+      sentence(['сбережёт', 'сберечёт', 'сберегёт']),
+    ])]).toEqual([0, 1])
+  })
+  it('does not confuse different text, hints, correct answers or option sets', () => {
+    expect(duplicateRowIndexes([
+      task([{ text: 'ж' }, gap(['е', 'и', 'а']), { text: 'лезо' }]),
+      task([{ text: 'ж' }, gap(['и', 'е', 'а']), { text: 'лезо' }]),
+      task([{ text: 'ж' }, gap(['е', 'и']), { text: 'лезо' }]),
+      task([{ text: 'ж' }, gap(['е', 'и', 'а'], 'подсказка'), { text: 'лезо' }]),
+      task([{ text: 'ж' }, gap(['е', 'и', 'а']), { text: 'леза' }]),
+    ]).size).toBe(0)
+  })
+  it('clears the highlight after removing or editing a duplicate', () => {
+    const rows = [word('каталог'), word('каталог')]
+    expect(duplicateRowIndexes(rows).size).toBe(2)
+    rows[1] = word('звонит')
+    expect(duplicateRowIndexes(rows).size).toBe(0)
+    expect(duplicateRowIndexes(rows.slice(0, 1)).size).toBe(0)
+    expect(duplicateRowIndexes([]).size).toBe(0)
   })
 })
