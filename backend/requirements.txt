@@ -1,0 +1,12 @@
+fastapi==0.115.14
+uvicorn[standard]==0.34.3
+SQLAlchemy==2.0.41
+pydantic==2.11.7
+PyJWT==2.10.1
+pwdlib[argon2]==0.2.1
+python-multipart==0.0.20
+# russian_g2p is not published on PyPI; pin the upstream source revision.
+russian-g2p @ https://github.com/nsu-ai/russian_g2p/archive/20305523bfe4ccb632c7538e9a5e925bde54b52e.zip
+# Maintained Python 3.12-compatible provider of the library's `dawg` import.
+DAWG2==0.13.3
+lxml==6.0.2

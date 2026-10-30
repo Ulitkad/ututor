@@ -1,0 +1,9 @@
+.git
+.env
+.admin_credentials
+data
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/.pytest_cache
