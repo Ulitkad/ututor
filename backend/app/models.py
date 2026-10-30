@@ -95,3 +95,11 @@ class TrainingSession(Base):
     version_id: Mapped[int] = mapped_column(default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     __mapper_args__ = {"version_id_col": version_id}
+
+
+class TrainingListLock(Base):
+    """Only overlapping lists are exclusive within a learning profile."""
+    __tablename__ = "training_list_locks"
+    profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
+    list_id: Mapped[int] = mapped_column(ForeignKey("task_lists.id", ondelete="CASCADE"), primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("training_sessions.id", ondelete="CASCADE"))

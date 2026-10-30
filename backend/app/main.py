@@ -283,12 +283,13 @@ def profile_lists(profile, db):
 
 
 def profile_json(profile, db):
-    active = db.scalar(select(m.TrainingSession).where(m.TrainingSession.profile_id == profile.id, m.TrainingSession.status == "active"))
+    active = list(db.scalars(select(m.TrainingSession).where(m.TrainingSession.profile_id == profile.id, m.TrainingSession.status == "active").order_by(m.TrainingSession.created_at)))
     return {"id": profile.id, "name": profile.name, "kind": profile.kind, "note": profile.note,
             "created_at": profile.created_at, "lists": profile_lists(profile, db),
-            "active_session": {"id": active.id, "name": active.context.get("name", "Тренировка"),
-                               "category": active.context.get("category"), "total": len(active.items),
-                               "answered": sum(not k.startswith("partial:") for k in active.answers)} if active else None}
+            "active_sessions": [{"id": session.id, "name": session.context.get("name", "Тренировка"),
+                                 "category": session.context.get("category"), "total": len(session.items),
+                                 "list_ids": session.context.get("list_ids", [session.list_id]),
+                                 "answered": sum(not k.startswith("partial:") for k in session.answers)} for session in active]}
 
 
 @app.get("/api/profiles")
@@ -384,12 +385,12 @@ def public_training_item(item, category):
 @app.post("/api/profiles/{profile_id}/sessions", status_code=201)
 def start_session(profile_id: int, data: s.SessionInput, db: Session = Depends(get_db), user=Depends(auth.current_user)):
     owned(m.Profile, profile_id, user, db)
-    if db.scalar(select(m.TrainingSession.id).where(m.TrainingSession.profile_id == profile_id, m.TrainingSession.status == "active")):
-        raise HTTPException(409, "Сначала продолжите сохранённую тренировку или завершите её без сохранения.")
     list_ids = list(dict.fromkeys(data.list_ids or ([data.list_id] if data.list_id else [])))
     if not list_ids:
         raise HTTPException(422, "Выберите хотя бы один список.")
     sources = [attached(profile_id, list_id, user, db) for list_id in list_ids]
+    if db.scalar(select(m.TrainingListLock.session_id).where(m.TrainingListLock.profile_id == profile_id, m.TrainingListLock.list_id.in_(list_ids))):
+        raise HTTPException(409, "Для выбранного списка уже есть незавершённая тренировка. Продолжите её или завершите полностью. Другие списки доступны.")
     task_list, folder = sources[0]
     if any(f.category != folder.category for _, f in sources):
         raise HTTPException(422, "Объединять можно только списки одного типа заданий.")
@@ -406,10 +407,12 @@ def start_session(profile_id: int, data: s.SessionInput, db: Session = Depends(g
                                          "list_ids": list_ids, "public_items": [public_training_item(i, folder.category) for i in items]})
     db.add(session)
     try:
+        db.flush()
+        db.add_all(m.TrainingListLock(profile_id=profile_id, list_id=list_id, session_id=session.id) for list_id in list_ids)
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(409, "В этом профиле уже есть незавершённая тренировка.")
+        raise HTTPException(409, "Для одного из выбранных списков уже есть незавершённая тренировка.")
     return session_json(session)
 
 
@@ -519,6 +522,7 @@ def results(session_id: str, db: Session = Depends(get_db), user=Depends(auth.cu
     session = owned_session(session_id, user, db)
     if all(str(i["id"]) in session.answers for i in session.items) and session.status == "active":
         session.status = "finished"
+        db.execute(delete(m.TrainingListLock).where(m.TrainingListLock.session_id == session.id))
         db.commit()
     return session_results(session)
 
@@ -528,6 +532,7 @@ def finish_session(session_id: str, db: Session = Depends(get_db), user=Depends(
     session = owned_session(session_id, user, db)
     session.status = "finished"
     try:
+        db.execute(delete(m.TrainingListLock).where(m.TrainingListLock.session_id == session.id))
         db.commit()
     except StaleDataError:
         db.rollback()

@@ -155,13 +155,13 @@ def test_resume_partial_session_finish_and_new_round(client, admin, teacher):
     # The current cursor may point at either shuffled word; a separate single-word
     # round below checks partial feedback deterministically.
     assert client.get(f"/api/sessions/{session['id']}", headers=teacher).status_code == 404
-    active = client.get(f"/api/profiles/{profile_id}", headers=admin).json()["active_session"]
+    active = client.get(f"/api/profiles/{profile_id}", headers=admin).json()["active_sessions"][0]
     assert active["id"] == session["id"] and active["answered"] == 0
     post(client, f"/sessions/{session['id']}/answers", admin, item_id=items[0]["id"], choices=["ла", "о"])
     result = post(client, f"/sessions/{session['id']}/finish", admin)
     assert result["total"] == 1 and result["correct"] == 0 and len(result["mistakes"]) == 1
     assert not result["complete"]
-    assert client.get(f"/api/profiles/{profile_id}", headers=admin).json()["active_session"] is None
+    assert client.get(f"/api/profiles/{profile_id}", headers=admin).json()["active_sessions"] == []
     assert client.post(f"/api/sessions/{session['id']}/answers", headers=admin,
                        json={"item_id": items[1]["id"], "choices": [""]}).status_code == 409
     post(client, f"/profiles/{profile_id}/sessions", admin, list_id=list_id, item_ids=[items[1]["id"]])
@@ -225,3 +225,36 @@ def test_partial_feedback_is_restored_and_unfinished_word_not_counted(client, ad
     assert saved["feedback"] == {"correct": False, "complete": False, "results": [False], "correct_answers": ["ло"]}
     result = post(client, f"/sessions/{session['id']}/finish", admin)
     assert result["total"] == 0 and result["mistakes"] == []
+
+
+def test_unfinished_training_only_blocks_its_own_lists(client, admin):
+    folder, list_id, profile_id, items = setup_training(client, admin)
+    other = post(client, f"/folders/{folder}/lists", admin, name="Другой список", raw="грам(,м)ота")
+    post(client, f"/profiles/{profile_id}/lists", admin, list_id=other["id"])
+    other_item = client.get(f"/api/lists/{other['id']}", headers=admin).json()["items"][0]["id"]
+    first = post(client, f"/profiles/{profile_id}/sessions", admin, list_id=list_id, item_ids=[items[0]["id"]])
+    second = post(client, f"/profiles/{profile_id}/sessions", admin, list_id=other["id"], item_ids=[other_item])
+    another_profile = post(client, "/profiles", admin, name="Другой ученик")["id"]
+    post(client, f"/profiles/{another_profile}/lists", admin, list_id=list_id)
+    post(client, f"/profiles/{another_profile}/sessions", admin, list_id=list_id, item_ids=[items[0]["id"]])
+    active = client.get(f"/api/profiles/{profile_id}", headers=admin).json()["active_sessions"]
+    assert {s["id"] for s in active} == {first["id"], second["id"]}
+    assert {tuple(s["list_ids"]) for s in active} == {(list_id,), (other["id"],)}
+    assert client.post(f"/api/profiles/{profile_id}/sessions", headers=admin,
+                       json={"list_ids": [list_id, other["id"]], "item_ids": [other_item]}).status_code == 409
+    post(client, f"/sessions/{first['id']}/finish", admin)
+    post(client, f"/profiles/{profile_id}/sessions", admin, list_id=list_id, item_ids=[items[0]["id"]])
+    assert client.get(f"/api/sessions/{second['id']}", headers=admin).json()["status"] == "active"
+
+
+def test_combined_training_locks_each_source_list(client, admin):
+    folder, list_id, profile_id, items = setup_training(client, admin)
+    other = post(client, f"/folders/{folder}/lists", admin, name="Второй", raw="грам(,м)ота")
+    post(client, f"/profiles/{profile_id}/lists", admin, list_id=other["id"])
+    item_id = client.get(f"/api/lists/{other['id']}", headers=admin).json()["items"][0]["id"]
+    combined = post(client, f"/profiles/{profile_id}/sessions", admin, list_ids=[list_id, other["id"]], item_ids=[items[0]["id"], item_id])
+    for source, item in [(list_id, items[0]["id"]), (other["id"], item_id)]:
+        assert client.post(f"/api/profiles/{profile_id}/sessions", headers=admin,
+                           json={"list_id": source, "item_ids": [item]}).status_code == 409
+    post(client, f"/sessions/{combined['id']}/finish", admin)
+    post(client, f"/profiles/{profile_id}/sessions", admin, list_id=other["id"], item_ids=[item_id])

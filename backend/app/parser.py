@@ -97,17 +97,21 @@ def parse_lines(raw, category):
         try:
             if len(source) > 2000:
                 raise ParseError("Строка слишком длинная (максимум 2000 символов).")
-            body, explanation = source, ""
-            if source.startswith("["):
-                match = re.match(r"\[([^\[\]]+)\]\s*(.+)$", source)
-                if not match or not match[1].strip():
-                    raise ParseError("Пояснение задаётся перед заданием: [песочный] зАмок.")
-                explanation, body = match[1].strip(), match[2]
+            explanations = []
+
+            def extract_explanation(match):
+                value = match[1].strip()
+                if not value:
+                    raise ParseError("Пояснение в квадратных скобках не может быть пустым.")
+                explanations.append(value)
+                return ""
+
+            body = re.sub(r"\[([^\[\]]*)\]", extract_explanation, source).strip()
             if "[" in body or "]" in body:
-                raise ParseError("Пояснение в квадратных скобках должно стоять перед заданием.")
+                raise ParseError("Проверьте парность квадратных скобок; вложенные пояснения не допускаются.")
             data, review = parse_stress(body) if category == "stress" else parse_gaps(body, category)
-            if explanation:
-                data["explanation"] = explanation
+            if explanations:
+                data["explanation"] = "; ".join(explanations)
             result.append({"source": source, "data": data, "needs_review": review})
         except ParseError as exc:
             errors.append({"line": index, "message": str(exc)})

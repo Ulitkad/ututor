@@ -1,4 +1,5 @@
 """Idempotent upgrades for databases created before format v2."""
+import json
 import re
 
 from sqlalchemy import inspect, select, text
@@ -17,9 +18,17 @@ def migrate(engine, db):
         }.items():
             if name not in columns:
                 conn.execute(text(f"ALTER TABLE training_sessions ADD COLUMN {name} {declaration}"))
-        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS one_active_training_per_profile "
-                          "ON training_sessions (profile_id) WHERE status = 'active'"))
+        conn.execute(text("DROP INDEX IF EXISTS one_active_training_per_profile"))
         conn.execute(text("CREATE TABLE IF NOT EXISTS schema_versions (name VARCHAR PRIMARY KEY)"))
+        if not conn.scalar(text("SELECT name FROM schema_versions WHERE name = 'per_list_training_locks'")):
+            # Existing active sessions keep their answers and now lock their own
+            # source lists instead of the entire profile. Old schema fixtures may
+            # have no context until the column upgrade above.
+            for session_id, profile_id, context in conn.execute(text("SELECT id, profile_id, context FROM training_sessions WHERE status = 'active'")):
+                for list_id in json.loads(context).get("list_ids", []):
+                    conn.execute(text("INSERT INTO training_list_locks (profile_id, list_id, session_id) VALUES (:profile, :list, :session)"),
+                                 {"profile": profile_id, "list": list_id, "session": session_id})
+            conn.execute(text("INSERT INTO schema_versions (name) VALUES ('per_list_training_locks')"))
         if conn.scalar(text("SELECT name FROM schema_versions WHERE name = 'literal_spaces_v2'")):
             return
     # Rewrite old source only. Keep structured answers, IDs and Progress intact.

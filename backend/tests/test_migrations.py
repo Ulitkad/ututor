@@ -44,3 +44,24 @@ def test_old_session_schema_upgrade(tmp_path):
         assert row == ("finished", "{}", 0)
         migrate(engine, db)
     engine.dispose()
+
+
+def test_active_session_locks_migrated_from_profile_to_lists(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'active.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add(m.TrainingSession(id="saved", profile_id=1, list_id=10, items=[], answers={},
+                                 context={"list_ids": [10, 20]}, status="active"))
+        db.commit()
+        with engine.begin() as conn:
+            conn.execute(text("CREATE UNIQUE INDEX one_active_training_per_profile ON training_sessions (profile_id) WHERE status = 'active'"))
+        migrate(engine, db)
+        locks = list(db.scalars(select(m.TrainingListLock).order_by(m.TrainingListLock.list_id)))
+        assert [(lock.profile_id, lock.list_id, lock.session_id) for lock in locks] == [(1, 10, "saved"), (1, 20, "saved")]
+        assert db.get(m.TrainingSession, "saved").status == "active"
+        # The old unique index is gone: a disjoint session can coexist.
+        db.add(m.TrainingSession(id="other", profile_id=1, list_id=30, items=[], answers={}, context={"list_ids": [30]}))
+        db.commit()
+        migrate(engine, db)
+        assert len(list(db.scalars(select(m.TrainingListLock)))) == 2  # Backfill is one-time.
+    engine.dispose()

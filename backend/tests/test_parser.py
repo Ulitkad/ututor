@@ -115,10 +115,26 @@ def test_error_line_matches_raw_line_numbers():
         parse_lines("\nдом\n\nдва слова", "stress")
 
 
-@pytest.mark.parametrize("source", ["[] зАмок", "[песочный зАмок", "зАмок [песочный]", "[[песочный]] зАмок"])
+@pytest.mark.parametrize("source", ["[] зАмок", "[песочный зАмок", "зАмок [песочный", "[[песочный]] зАмок"])
 def test_invalid_explanations(source):
     with pytest.raises(ParseError):
         parse_lines(source, "stress")
+
+
+@pytest.mark.parametrize("source", ["[песочный] зАмок", "зАмок [песочный]", "зА[песочный]мок"])
+def test_stress_explanation_anywhere(source):
+    item = parse_lines(source, "stress")[0]
+    assert item["data"] == {"word": "замок", "stress": 1, "explanation": "песочный"}
+    assert item["source"] == source
+
+
+def test_explanations_inside_sentence_and_options():
+    item = parse_lines("Он [о будущем] (сберечь|сбережёт[верная форма],сберегёт) здоровье. [контекст]", "grammar")[0]
+    assert item["data"]["explanation"] == "о будущем; верная форма; контекст"
+    assert solution(item["data"]) == "Он  сбережёт здоровье."
+    item = parse_lines("грам(,[без удвоения]м)ота", "spelling")[0]
+    assert solution(item["data"]) == "грамота"
+    assert item["data"]["parts"][1]["options"] == ["", "м"]
 
 
 @pytest.mark.parametrize("source,category", [

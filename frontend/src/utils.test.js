@@ -56,6 +56,7 @@ describe('import format v2', () => {
     expect(prompts[0]).toContain('[песочный] зАмок')
     expect(prompts[1]).toContain('По( ,)этому')
     expect(prompts[2]).toContain('начальная форма|')
+    expect(prompts.every(prompt => prompt.includes('в любом месте'))).toBe(true)
   })
   it('does not confuse homographs with different explanations or spaces with omissions', () => {
     expect(duplicateRowIndexes([

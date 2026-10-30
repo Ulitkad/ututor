@@ -32,7 +32,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', keydown); window.r
 onBeforeRouteLeave(() => {
   if (allowLeave.value || results.value || !session.value) return true
   if (busy.value) return false
-  return window.confirm('Выйти с сохранением тренировки? Вы сможете продолжить с этого места. Новая тренировка в этом профиле будет недоступна до завершения текущей.')
+  return window.confirm('Выйти с сохранением тренировки? Вы сможете продолжить с этого места. Новая тренировка по этим же спискам будет недоступна до завершения текущей. По другим спискам тренироваться можно.')
 })
 function beforeUnload(e) { if (session.value && !results.value) { e.preventDefault(); e.returnValue = '' } }
 function keydown(e) {
@@ -109,7 +109,7 @@ async function finish() {
       </div><p class="result-saved"><Icon name="ShieldCheck" :size="13" />Результаты уже сохранены в учебном профиле</p></main>
   </div>
   <div v-else-if="error" class="error-box">{{ error }} <RouterLink to="/profiles">Вернуться к профилям</RouterLink></div>
-   <Modal v-if="exiting" title="Завершить тренировку?" @close="!busy && (exiting = false)"><div class="modal-body"><p>Сохраните тренировку, чтобы позже продолжить с этого же места, включая ответы в текущем слове. Пока она не завершена, начать новую в этом профиле нельзя.</p><p class="mt-4 muted">Если завершить полностью, вы увидите итог только по завершённым заданиям. Нерешённые задания не повлияют на статистику.</p><div v-if="error" class="error-box mt-4">{{ error }}</div></div><footer class="modal-footer flex-wrap"><button class="btn secondary" :disabled="busy" @click="exiting = false">Назад</button><button class="btn secondary" :disabled="busy" @click="finish">Завершить полностью</button><button class="btn primary" :disabled="busy" @click="pause">Сохранить и выйти</button></footer></Modal>
+   <Modal v-if="exiting" title="Завершить тренировку?" @close="!busy && (exiting = false)"><div class="modal-body"><p>Сохраните тренировку, чтобы позже продолжить с этого же места, включая ответы в текущем слове. Пока она не завершена, нельзя начать новую только по участвующим в ней спискам. По остальным спискам тренироваться можно.</p><p class="mt-4 muted">Если завершить полностью, вы увидите итог только по завершённым заданиям. Нерешённые задания не повлияют на статистику.</p><div v-if="error" class="error-box mt-4">{{ error }}</div></div><footer class="modal-footer flex-wrap"><button class="btn secondary" :disabled="busy" @click="exiting = false">Назад</button><button class="btn secondary" :disabled="busy" @click="finish">Завершить полностью</button><button class="btn primary" :disabled="busy" @click="pause">Сохранить и выйти</button></footer></Modal>
 </template>
 <style scoped>
 .training-explanation{font-size:22px;color:#64748b;margin:-18px 0 20px;overflow-wrap:anywhere;max-width:100%}
