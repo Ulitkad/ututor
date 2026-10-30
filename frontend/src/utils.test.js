@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addRandom, displayOption, duplicateRowIndexes, importPrompt, normalizeOption, percentage, serializeTask, shuffle, taskLabel } from './utils'
+import { addRandom, displayOption, duplicateRowIndexes, importPrompt, normalizeOption, percentage, serializeTask, shuffle, stressLetters, taskEditor, taskLabel, taskSegments } from './utils'
 
 describe('training helpers', () => {
   it('adds random unselected tasks without dropping existing selection', () => {
@@ -43,6 +43,33 @@ describe('training helpers', () => {
 })
 
 describe('import format v2', () => {
+  it('round-trips inline explanations through the visual grammar editor', () => {
+    const source = 'Установка [тест] оборудования ▢. [конец]'
+    const item = { source: source.replace('▢', '(сберечь|сбережёт,сберегёт)'), data: { parts: [{ hint: 'сберечь', options: ['сбережёт', 'сберегёт'], correct: 'сбережёт' }] } }
+    const editor = taskEditor(item, 'grammar')
+    expect(editor.text).toBe(source)
+    expect(serializeTask(editor, 'grammar')).toBe(item.source)
+    editor.parts[0].text = 'Монтаж [тест] оборудования '
+    expect(serializeTask(editor, 'grammar')).toContain('Монтаж [тест] оборудования (')
+  })
+  it('preserves explanations within gap options and punctuation', () => {
+    const source = '[а, б|в] грам(,[без, удвоения]м)ота [конец]'
+    const item = { source, data: { parts: [{ hint: '', options: ['', 'м'], correct: '' }] } }
+    expect(serializeTask(taskEditor(item, 'spelling'), 'spelling')).toBe(source)
+    const grammar = { source: 'Он (быть[глагол]|был[м, ж],была).', data: { parts: [{ hint: 'быть', options: ['был', 'была'] }] } }
+    expect(serializeTask(taskEditor(grammar, 'grammar'), 'grammar')).toBe(grammar.source)
+  })
+  it.each(['[Песочный] зАмок', 'зА[Песочный]мок', 'зАмок [Песочный]'])('keeps stress indexes and annotation case: %s', source => {
+    const editor = taskEditor({ source, data: { word: 'замок', stress: 1 } }, 'stress')
+    expect(serializeTask({ word: editor.word, stress: 1 }, 'stress')).toBe(source)
+    expect(stressLetters(editor.word).filter(p => 'letter' in p).map(p => p.letter)).toEqual([0, 1, 2, 3, 4])
+  })
+  it('resolves public layout without changing gap indexes', () => {
+    const parts = [{ text: 'По' }, { options: [' ', ''] }, { text: 'этому' }]
+    const segments = taskSegments({ parts, layout: [{ text: 'По' }, { explanation: 'контекст' }, { gap: 0 }, { text: 'этому' }] })
+    expect(segments[1]).toEqual({ explanation: 'контекст' })
+    expect(segments[2]).toEqual({ gap: 0, part: parts[1] })
+  })
   it('distinguishes spaces, omission and padded letters', () => {
     expect(['', ' ', '  ', ' е '].map(normalizeOption)).toEqual(['', ' ', ' ', 'е'])
     const data = { explanation: 'контекст', parts: [{ text: 'По' }, { hint: '', options: [' ', ''], correct: ' ' }, { text: 'этому' }] }

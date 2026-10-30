@@ -14,7 +14,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from . import auth, models as m, schemas as s
 from .database import Base, SessionLocal, engine, get_db
-from .parser import CATEGORIES, ParseError, parse_lines, solution
+from .parser import CATEGORIES, ParseError, parse_lines, solution, task_layout
 from .migrations import migrate
 
 
@@ -158,7 +158,8 @@ def parse(raw, category):
 
 
 def item_json(item):
-    return {"id": item.id, "source": item.source, "data": item.data, "needs_review": item.needs_review, "solution": solution(item.data)}
+    return {"id": item.id, "source": item.source, "data": item.data, "needs_review": item.needs_review,
+            "solution": solution(item.data), "layout": task_layout(item.source, item.data)}
 
 
 @app.get("/api/library")
@@ -370,7 +371,8 @@ def selection_items(profile_id: int, list_id: int, db: Session = Depends(get_db)
 def public_training_item(item, category):
     data = item.data
     if category == "stress":
-        return {"id": item.id, "word": data["word"], "explanation": data.get("explanation", "")}
+        return {"id": item.id, "word": data["word"], "explanation": data.get("explanation", ""),
+                "layout": task_layout(item.source, data)}
     parts = []
     for part in data["parts"]:
         if "text" in part:
@@ -379,7 +381,8 @@ def public_training_item(item, category):
             options = part["options"][:]
             random.SystemRandom().shuffle(options)
             parts.append({"hint": part["hint"], "options": options})
-    return {"id": item.id, "parts": parts, "explanation": data.get("explanation", "")}
+    return {"id": item.id, "parts": parts, "explanation": data.get("explanation", ""),
+            "layout": task_layout(item.source, data)}
 
 
 @app.post("/api/profiles/{profile_id}/sessions", status_code=201)
@@ -424,10 +427,13 @@ def session_json(session):
         correct = [p["correct"] for p in current["data"]["parts"] if "options" in p]
         checks = [a == b for a, b in zip(choices, correct)]
         feedback = {"complete": False, "correct": all(checks), "results": checks, "correct_answers": correct[:len(choices)]}
+    snapshots = {item["id"]: item for item in session.items}
+    public_items = [{**item, "layout": task_layout(snapshots[item["id"]]["source"], snapshots[item["id"]]["data"])}
+                    for item in session.context.get("public_items", [])]
     return {"id": session.id, "profile_id": session.profile_id, "status": session.status,
             "category": session.context.get("category"), "name": session.context.get("name"),
             "list_ids": session.context.get("list_ids", [session.list_id]),
-            "items": session.context.get("public_items", []), "index": session.cursor,
+            "items": public_items, "index": session.cursor,
             "choices": choices, "feedback": feedback,
             "answered": sum(not k.startswith("partial:") for k in session.answers)}
 
@@ -543,6 +549,7 @@ def finish_session(session_id: str, db: Session = Depends(get_db), user=Depends(
 def session_results(session):
     answers = {k: v for k, v in session.answers.items() if not k.startswith("partial:")}
     mistakes = [{"id": i["id"], "source": i["source"], "solution": solution(i["data"]),
+                 "data": i["data"], "layout": task_layout(i["source"], i["data"]),
                  "explanation": i["data"].get("explanation", "")} for i in session.items
                 if str(i["id"]) in answers and not answers[str(i["id"])]["correct"]]
     return {"total": len(answers), "correct": sum(a["correct"] for a in answers.values()), "mistakes": mistakes,

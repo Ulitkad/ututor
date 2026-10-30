@@ -82,6 +82,39 @@ def normalize_option(value):
     return " " if value and value.isspace() else value.strip()
 
 
+def task_layout(source, data):
+    """Presentation only: recover annotation positions, including for old items.
+
+    Gap references never include answers, so this layout is safe for training.
+    Keep it out of data: adding presentation must not invalidate saved progress
+    or the answer snapshots of an already running session.
+    """
+    layout = []
+    letter_index = gap_index = 0
+    tokens = re.findall(r"\[[^\[\]]*\]|\((?:\[[^\[\]]*\]|[^()[\]])*\)|[^[(]+", source)
+    for token in tokens:
+        if token.startswith("["):
+            layout.append({"explanation": token[1:-1]})
+        elif token.startswith("(") and "parts" in data:
+            layout.append({"gap": gap_index})
+            gap_index += 1
+            # An annotation within an answer belongs to that gap, not to the
+            # beginning of the sentence. Do not expose the original options.
+            layout.extend({"explanation": value} for value in re.findall(r"\[([^\[\]]*)\]", token))
+        elif "word" in data:
+            for char in token:
+                if char == "\u0301":
+                    continue
+                if char.isspace():
+                    layout.append({"text": char})
+                else:
+                    layout.append({"letter": letter_index})
+                    letter_index += 1
+        else:
+            layout.append({"text": token})
+    return layout
+
+
 def parse_lines(raw, category):
     if category not in CATEGORIES:
         raise ParseError("Неизвестная категория.")
@@ -112,7 +145,8 @@ def parse_lines(raw, category):
             data, review = parse_stress(body) if category == "stress" else parse_gaps(body, category)
             if explanations:
                 data["explanation"] = "; ".join(explanations)
-            result.append({"source": source, "data": data, "needs_review": review})
+            result.append({"source": source, "data": data, "needs_review": review,
+                           "layout": task_layout(source, data)})
         except ParseError as exc:
             errors.append({"line": index, "message": str(exc)})
     if errors:

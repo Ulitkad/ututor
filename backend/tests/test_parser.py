@@ -1,6 +1,6 @@
 import pytest
 
-from app.parser import ParseError, parse_lines, solution
+from app.parser import ParseError, parse_lines, solution, task_layout
 
 
 @pytest.mark.parametrize("source,stress", [
@@ -135,6 +135,33 @@ def test_explanations_inside_sentence_and_options():
     item = parse_lines("грам(,[без удвоения]м)ота", "spelling")[0]
     assert solution(item["data"]) == "грамота"
     assert item["data"]["parts"][1]["options"] == ["", "м"]
+
+
+def test_layout_preserves_inline_explanations_without_exposing_answers():
+    source = "Установка [тест] оборудования (сберечь|сбережёт,сберегёт). [конец]"
+    item = parse_lines(source, "grammar")[0]
+    assert item["layout"] == [
+        {"text": "Установка "}, {"explanation": "тест"}, {"text": " оборудования "},
+        {"gap": 0}, {"text": ". "}, {"explanation": "конец"},
+    ]
+    assert task_layout(source, item["data"]) == item["layout"]
+    assert "сбережёт" not in str(item["layout"])
+
+
+@pytest.mark.parametrize("source", ["[начало] зАмок", "зА[середина]мок", "зАмок [конец]", "А́[первый]рка"])
+def test_stress_layout_keeps_original_letter_indexes(source):
+    item = parse_lines(source, "stress")[0]
+    letters = [p["letter"] for p in item["layout"] if "letter" in p]
+    assert letters == list(range(len(item["data"]["word"])))
+    rendered = "".join(p.get("text", "") if "text" in p else f"[{p['explanation']}]" if "explanation" in p
+                       else item["data"]["word"][p["letter"]] for p in item["layout"])
+    assert rendered == source.lower().replace("\u0301", "")
+
+
+def test_layout_annotation_with_parentheses_is_not_a_gap():
+    item = parse_lines("[форма (контекст)] Он (быть|был,была)[конец].", "grammar")[0]
+    assert item["layout"] == [{"explanation": "форма (контекст)"}, {"text": " Он "},
+                              {"gap": 0}, {"explanation": "конец"}, {"text": "."}]
 
 
 @pytest.mark.parametrize("source,category", [

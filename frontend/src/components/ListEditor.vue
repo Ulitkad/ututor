@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
-import { categoryById, displayOption, duplicateRowIndexes, importPrompt, normalizeOption, serializeTask, vowels } from '../utils'
+import { categoryById, displayOption, duplicateRowIndexes, importPrompt, normalizeOption, serializeTask, stressLetters, taskEditor, vowels } from '../utils'
 import Modal from './Modal.vue'
 import TaskPreview from './TaskPreview.vue'
 
@@ -13,7 +13,8 @@ const loading = ref(false), busy = ref(false), error = ref(''), dragging = ref(f
 const word = ref(''), text = ref(''), parts = ref([]), stress = ref(null), selection = ref({ start: 0, end: 0 }), textInput = ref(null)
 const optionModal = ref(null), distractors = ref(''), hint = ref(''), correct = ref('')
 const selectionPopover = ref(false)
-const explanation = ref(''), copied = ref(false), rawNumbers = ref(null)
+const copied = ref(false), rawNumbers = ref(null)
+const letters = computed(() => stressLetters(word.value))
 const lineNumbers = computed(() => raw.value.split('\n').length)
 async function copyPrompt() {
   error.value = ''; copied.value = false
@@ -44,7 +45,7 @@ function close() {
   if (!busy.value && (!dirty.value || window.confirm('Закрыть редактор без сохранения изменений?'))) emit('close')
 }
 function serialize(data) {
-  return serializeTask({ ...data, explanation: explanation.value.trim() }, props.config.category)
+  return serializeTask(data, props.config.category)
 }
 async function switchMode(next) {
   error.value = ''
@@ -70,17 +71,17 @@ async function upload(file) {
   } catch (e) { error.value = e.message } finally { busy.value = false }
 }
 function dropped(e) { dragging.value = false; upload(e.dataTransfer.files[0]) }
-function clearBuilder() { explanation.value = ''; word.value = ''; stress.value = null; text.value = ''; parts.value = []; active.value = 0; selection.value = { start: 0, end: 0 } }
+function clearBuilder() { word.value = ''; stress.value = null; text.value = ''; parts.value = []; active.value = 0; selection.value = { start: 0, end: 0 } }
 function editRow(row, index) {
   active.value = index + 1
-  explanation.value = row.data.explanation || ''
-  if (props.config.category === 'stress') { word.value = row.data.word; stress.value = row.data.stress }
+  const editor = taskEditor(row, props.config.category)
+  if (props.config.category === 'stress') { word.value = editor.word; stress.value = row.data.stress }
   else {
-    parts.value = JSON.parse(JSON.stringify(row.data.parts))
-    text.value = parts.value.map(p => 'text' in p ? p.text : '▢').join('')
+    parts.value = editor.parts
+    text.value = editor.text
   }
 }
-function wordChanged() { word.value = word.value.toLowerCase(); stress.value = null; dirty.value = true }
+function wordChanged() { word.value = word.value.replace(/\[[^\[\]]*\]|[^\[\]]+/g, value => value.startsWith('[') ? value : value.toLowerCase()); stress.value = null; dirty.value = true }
 function captureSelection(e) {
   selection.value = { start: e.target.selectionStart, end: e.target.selectionEnd }
   selectionPopover.value = props.config.category === 'spelling' && e.target.selectionEnd > e.target.selectionStart
@@ -128,7 +129,7 @@ function removeRow(index) { rows.value.splice(index, 1); raw.value = rows.value.
 async function save() {
   error.value = ''; busy.value = true
   try {
-    if (mode.value === 'visual' && (word.value.trim() || text.value.trim() || explanation.value.trim())) throw new Error('Сначала добавьте или сохраните задание в конструкторе ниже.')
+    if (mode.value === 'visual' && (word.value.trim() || text.value.trim())) throw new Error('Сначала добавьте или сохраните задание в конструкторе ниже.')
     const payload = { name: name.value, raw: mode.value === 'raw' ? raw.value : rows.value.map(r => r.source).join('\n') }
     await api(props.config.id ? `/lists/${props.config.id}` : `/folders/${props.config.folderId}/lists`, { method: props.config.id ? 'PUT' : 'POST', body: payload })
     emit('saved')
@@ -156,8 +157,8 @@ function exportRaw() {
       <template v-else>
         <div v-if="reviewCount" class="review-note"><Icon name="AlertCircle" :size="16" />В {{ reviewCount }} заданиях слово неизвестно или ударение неоднозначно. Укажите правильное ударение вручную: нажмите карандаш и выберите гласную.</div>
         <div class="builder"><div class="builder-title"><Icon :name="category.icon" :size="16" /><strong>{{ active ? `Редактирование задания №${active}` : 'Конструктор задания' }}</strong><button v-if="active" class="btn ghost sm ml-auto" @click="clearBuilder">Отмена</button></div>
-          <div class="field"><label for="task-explanation">Пояснение / контекст (необязательно)</label><input id="task-explanation" v-model="explanation" class="input" placeholder="Например, песочный — для слова «замок»" maxlength="300" @input="dirty = true" /><span class="muted">Показывается над заданием. В тексте: [песочный] зАмок.</span></div>
-          <template v-if="config.category === 'stress'"><div class="field"><label for="stress-word">Введите слово и нажмите на ударную гласную</label><input id="stress-word" v-model="word" class="input" placeholder="Например, каталог" @input="wordChanged" /></div><div v-if="word" class="letter-builder"><button v-for="(letter, i) in word" :key="i" :disabled="!vowels.includes(letter)" :class="{ vowel: vowels.includes(letter), chosen: stress === i }" :aria-label="`Ударение на ${letter}, буква ${i + 1}`" @click="stress = i">{{ letter + (stress === i ? '\u0301' : '') }}</button></div><p class="builder-tip">Гласные выделены голубым. Нажмите на ударную гласную.</p></template>
+          <p class="builder-tip">Пояснения пишите прямо в тексте в квадратных скобках: Установка [тест] оборудования. Они останутся на этом месте и не войдут в ответ.</p>
+          <template v-if="config.category === 'stress'"><div class="field"><label for="stress-word">Введите слово и нажмите на ударную гласную</label><input id="stress-word" v-model="word" class="input" placeholder="Например, замок [песочный]" @input="wordChanged" /></div><div v-if="word" class="letter-builder"><template v-for="(part, i) in letters" :key="i"><span v-if="'text' in part" class="task-explanation">{{ part.text }}</span><button v-else :disabled="!vowels.includes(part.value)" :class="{ vowel: vowels.includes(part.value), chosen: stress === part.letter }" :aria-label="`Ударение на ${part.value}, буква ${part.letter + 1}`" @click="stress = part.letter">{{ part.value + (stress === part.letter ? '\u0301' : '') }}</button></template></div><p class="builder-tip">Гласные выделены голубым. Нажмите на ударную гласную.</p></template>
           <template v-else><div class="field"><label for="builder-text">{{ config.category === 'grammar' ? 'Текст предложения' : 'Слово или словосочетание' }}</label><textarea id="builder-text" ref="textInput" v-model="text" class="input" :placeholder="config.category === 'grammar' ? 'Введите предложение и поставьте курсор на место пропуска…' : 'Введите слово и выделите буквы для пропуска…'" @input="textChanged" @select="captureSelection" @click="captureSelection" @keyup="captureSelection"></textarea></div><div class="flex flex-wrap gap-2"><button class="btn secondary sm" @click="openGap(false)"><Icon name="Plus" :size="14" />{{ config.category === 'grammar' ? 'Вставить пропуск' : 'Добавить ложные варианты' }}</button><button v-if="config.category === 'spelling'" class="btn soft sm" @click="openGap(true)">+ Пропуск без буквы (∅)</button></div>
             <p v-if="config.category === 'spelling'" class="builder-tip">Пустое поле — без символа (∅), один пробел — пробел (␣). Не добавляйте пробелы после запятых для оформления.</p>
             <div v-for="(part, i) in parts.filter(p => 'options' in p)" :key="i" class="gap-editor"><div class="flex items-center justify-between gap-2"><span class="field-label">Пропуск {{ i + 1 }}</span><span class="badge green">Первый вариант — верный</span></div><div v-if="config.category === 'grammar'" class="field mt-3"><label>Начальная форма</label><input v-model="part.hint" class="input" placeholder="сберечь" /></div><div class="answer-tags"><span v-for="(option, j) in part.options" :key="j" :class="{ right: j === 0 }">{{ displayOption(option) }}<Icon v-if="j === 0" name="Check" :size="11" /></span></div><div class="gap-fields"><label>Верный ответ<input v-model="part.options[0]" class="input" placeholder="∅ — оставьте пустым" /></label><label>Ложные варианты через запятую<input class="input" :value="part.options.slice(1).join(',')" placeholder="Вариант,ещё вариант" @change="updateOptions(part, $event)" /></label></div><div v-if="config.category === 'spelling'" class="flex flex-wrap gap-2 mt-2"><button v-if="!part.options.includes('')" class="btn ghost sm" @click="part.options.push('')">+ Без символа (∅)</button><button v-if="!part.options.includes(' ')" class="btn ghost sm" @click="part.options.push(' ')">+ Пробел (␣)</button></div></div>
